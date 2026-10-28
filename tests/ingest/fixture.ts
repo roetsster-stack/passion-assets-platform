@@ -4,6 +4,22 @@
  */
 import type { AirtableRecord } from "@/lib/ingest/airtable";
 import { COLLECTION_TABLE, F, P, PROVENANCE_TABLE } from "@/lib/ingest/fields";
+import type { IngestRules } from "@/lib/ingest/map";
+
+/** A synthetic vocabulary — the real one lives outside the repository. */
+export const RULES: IngestRules = {
+  defaultOwner: "Principal",
+  owners: [
+    { name: "Principal", kind: "person" },
+    { name: "Partner", kind: "person" },
+    { name: "Joint", kind: "joint" },
+    { name: "Company", kind: "company" },
+  ],
+  residences: ["Hilltop House", "The Cottage"],
+  storage: ["City Storage"],
+  framers: ["Frame & Co"],
+  studios: [{ tag: "Painter", name: "Pat Painter" }],
+};
 
 export const att = (id: string, filename: string, type = "image/jpeg", size = 1234, extra: Record<string, unknown> = {}) => ({
   id,
@@ -36,8 +52,8 @@ export function collectionRecords(): AirtableRecord[] {
         [F.sourced]: "Gallery One",
         [F.gallery]: "Gallery One, Somewhere",
         [F.currentValue]: 1500,
-        [F.location]: ["CT Storage"],
-        [F.ownership]: ["Catherina"],
+        [F.location]: ["City Storage"],
+        [F.ownership]: ["Partner"],
         [F.comments]: "A note.",
         [F.highResImage]: "No",
         [F.lowResImage]: "Yes",
@@ -62,7 +78,7 @@ export function collectionRecords(): AirtableRecord[] {
         [F.location]: ["SOLD 2023"],
         [F.highResImage]: "No Image",
         [F.lowResImage]: "No",
-        [F.provenance]: ["recPPP00000000001", "recPPP00000000002"],
+        [F.provenance]: ["recPPP00000000002", "recPPP00000000001"], // the work's own order: the sale line first
       },
     },
     {
@@ -74,11 +90,13 @@ export function collectionRecords(): AirtableRecord[] {
         [F.title]: "Untitled",
         [F.year]: "Undated",
         [F.medium]: "Sculpture",
-        [F.location]: ["On Loan Norval", "Framed", "Somewhere Odd"],
+        [F.location]: ["On Loan Museum", "Framed", "Somewhere Odd"],
         [F.currency]: "193,207.00",
         [F.lowResImageFiles]: [
           att("attIMG0000000003", "Beispiel, Bjorn, Untitled 1.jpg", "image/jpeg", 2048, { width: 800, height: 600 }),
           att("attIMG0000000004", "Beispiel, Bjorn, Untitled 2.jpg", "image/jpeg", 2048, { width: 800, height: 600 }),
+          // the same file uploaded twice — identical bytes, a different attachment id
+          att("attIMG0000000005", "Beispiel, Bjorn, Untitled 1.jpg", "image/jpeg", 2048, { width: 800, height: 600 }),
         ],
       },
     },
@@ -122,8 +140,9 @@ export function tables(): Record<string, AirtableRecord[]> {
 
 /** Serves bytes for any fixture attachment URL. */
 export async function fakeFetch(url: string): Promise<Response> {
-  const m = url.match(/cdn\.example\.test\/([^/]+)\//);
+  const m = url.match(/cdn\.example\.test\/([^/]+)\/([^?]+)/);
   if (!m) return new Response("not found", { status: 404 });
-  const body = Buffer.from(`bytes-of-${m[1]}`);
+  // bytes follow the filename, so the same file uploaded twice has identical bytes
+  const body = Buffer.from(`bytes-of-${decodeURIComponent(m[2])}`);
   return new Response(body, { status: 200, headers: { "content-type": "application/octet-stream" } });
 }

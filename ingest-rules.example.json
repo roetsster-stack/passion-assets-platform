@@ -1,0 +1,14 @@
+{
+  "_comment": "Copy to ~/curator/ingest-rules.json on Workshop and replace every placeholder with the real names. Location and ownership are sensitive: the real file never enters the repository or the iCloud folder.",
+  "defaultOwner": "Principal",
+  "owners": [
+    { "name": "Principal", "kind": "person" },
+    { "name": "Partner", "kind": "person" },
+    { "name": "Joint", "kind": "joint" },
+    { "name": "Company", "kind": "company" }
+  ],
+  "residences": ["Residence One", "Residence Two"],
+  "storage": ["Storage One"],
+  "framers": ["Framer One"],
+  "studios": [{ "tag": "Artist", "name": "Artist Full Name" }]
+}

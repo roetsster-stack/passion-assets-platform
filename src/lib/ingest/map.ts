@@ -48,6 +48,7 @@ export type ItemRow = {
   credit_gallery: string | null;
   current_value: number | null;
   current_value_currency: string | null;
+  valuation_date: string | null;
   status: ItemStatus;
   sold_year: number | null;
   location: string | null;
@@ -63,9 +64,11 @@ export type ItemRow = {
   has_coa: boolean | null;
   high_res_note: string | null;
   owner_names: string[];
+  owner_defaulted: boolean;
   provenance_record_ids: string[];
   airtable_modified_at: string | null;
   attachments: MappedAttachment[];
+  raw: Record<string, unknown>;
   content_hash: string;
 };
 
@@ -83,6 +86,7 @@ export type ProvenanceRow = {
   reviews: string | null;
   added_info: string | null;
   attachments: AirtableAttachment[];
+  raw: Record<string, unknown>;
   content_hash: string;
 };
 
@@ -165,7 +169,7 @@ export function normalizeKey(surname: string, givenName: string | null): string 
   const fold = (s: string) =>
     s
       .normalize("NFD")
-      .replace(/[̀-ͯ]/g, "")
+      .replace(/[\u0300-\u036f]/g, "")
       .toLowerCase()
       .replace(/\s+/g, " ")
       .trim();
@@ -200,84 +204,84 @@ export type LocationResult = {
   unmapped: string[];
 };
 
-type Rule = { match: (tag: string) => RegExpMatchArray | null | boolean; apply: (m: RegExpMatchArray | true, acc: LocationResult) => void };
+/**
+ * The vocabulary the rules need — residences, storage, framers, studios, owners. Location and
+ * ownership are sensitive classes, so the real vocabulary lives beside `~/curator/.env` on Workshop
+ * (`ingest-rules.json`), never in the repository. The repository holds only the rule *shapes* and a
+ * synthetic vocabulary for tests. See `ingest-rules.example.json`.
+ */
+export type IngestRules = {
+  defaultOwner: string;
+  owners: { name: string; kind: "person" | "joint" | "company" | "trust" | "vehicle" }[];
+  /** Places the collection lives in: a work tagged with one is hung there. */
+  residences: string[];
+  /** Storage facilities: a work tagged with one is in storage there. */
+  storage: string[];
+  /** Framers and finishers: a work tagged with one is at the framer. */
+  framers: string[];
+  /** Tags of the form "<tag> - rework" / "<tag> - recent purchase" mean the work is with that artist. */
+  studios: { tag: string; name: string }[];
+};
 
-const RULES: Rule[] = [
-  {
-    match: (t) => t.match(/^sold\s*(\d{4})?$/i),
-    apply: (m, acc) => {
-      acc.status = "sold";
-      if (m !== true && m[1]) acc.sold_year = Number(m[1]);
-    },
-  },
-  {
-    match: (t) => t.match(/^on loan\s+(.+)$/i),
-    apply: (m, acc) => {
-      acc.status = "on_loan";
-      if (m !== true) acc.location = m[1].trim();
-    },
-  },
-  {
-    match: (t) => /^(ct storage|storage norwalk|storage .+|.+ storage)$/i.test(t),
-    apply: (_m, acc) => {
-      acc.status = "in_storage";
-    },
-  },
-  {
-    match: (t) => /^orms$/i.test(t),
-    apply: (_m, acc) => {
-      acc.status = "at_framer";
-      acc.location = "Orms";
-    },
-  },
-  {
-    match: (t) => t.match(/^(conrad)\s*-\s*(rework|recent purchase)$/i),
-    apply: (m, acc) => {
-      acc.status = "with_artist";
-      acc.location = "Conrad Botes";
-      if (m !== true) acc.condition_note = m[2].toLowerCase() === "rework" ? "With the artist for rework" : "Recent purchase, with the artist";
-    },
-  },
-  {
-    match: (t) => t.match(/^(.+?)\s*\((to be fixed)\)$/i),
-    apply: (m, acc) => {
-      acc.status = acc.status === "unknown" ? "hung" : acc.status;
-      if (m !== true) {
-        acc.location = m[1].trim();
-        acc.condition_note = "To be fixed";
-      }
-    },
-  },
-  {
-    // Residences and places the collection lives in. "Framed" is a state of the object, not a place.
-    match: (t) => /^(franschhoek|onrus|dante|sea shells)$/i.test(t),
-    apply: (_m, acc) => {
-      acc.status = acc.status === "unknown" ? "hung" : acc.status;
-    },
-  },
-];
+const eq = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
 
-const PLACE_TAGS = /^(ct storage|storage norwalk|franschhoek|onrus|dante|sea shells)$/i;
-
-export function applyLocationRules(tags: string[]): LocationResult {
+export function applyLocationRules(tags: string[], rules: IngestRules): LocationResult {
   const acc: LocationResult = { status: "unknown", location: null, condition_note: null, sold_year: null, unmapped: [] };
+  const hangIfUnknown = () => {
+    if (acc.status === "unknown") acc.status = "hung";
+  };
+
   for (const tag of tags) {
-    let matched = false;
-    for (const rule of RULES) {
-      const m = rule.match(tag);
-      if (m) {
-        rule.apply(m === true ? true : m, acc);
-        matched = true;
-        break;
-      }
+    let m: RegExpMatchArray | null;
+
+    if ((m = tag.match(/^sold\s*(\d{4})?$/i))) {
+      acc.status = "sold";
+      if (m[1]) acc.sold_year = Number(m[1]);
+      continue;
     }
-    if (PLACE_TAGS.test(tag) && !acc.location) acc.location = tag;
-    if (!matched && /^framed$/i.test(tag)) {
-      matched = true; // a known state; carried in location_tags, nothing to map
+    if ((m = tag.match(/^on loan\s+(.+)$/i))) {
+      acc.status = "on_loan";
+      acc.location = m[1].trim();
+      continue;
     }
-    if (!matched) acc.unmapped.push(tag);
+    if ((m = tag.match(/^(.+?)\s*\(to be fixed\)$/i))) {
+      hangIfUnknown();
+      acc.location = acc.location ?? m[1].trim();
+      acc.condition_note = "To be fixed";
+      continue;
+    }
+    if (/^framed$/i.test(tag)) continue; // a state of the object, carried in location_tags
+
+    const studio = rules.studios.find((s) => tag.match(new RegExp(`^${escapeRe(s.tag)}\\s*-\\s*(rework|recent purchase)$`, "i")));
+    if (studio) {
+      const kind = tag.match(/(rework|recent purchase)$/i)![1].toLowerCase();
+      acc.status = "with_artist";
+      acc.location = studio.name;
+      acc.condition_note = kind === "rework" ? "With the artist for rework" : "Recent purchase, with the artist";
+      continue;
+    }
+    if (rules.storage.some((s) => eq(s, tag)) || /(^storage\s|\sstorage$)/i.test(tag)) {
+      acc.status = "in_storage";
+      acc.location = acc.location ?? tag.trim();
+      continue;
+    }
+    if (rules.framers.some((f) => eq(f, tag))) {
+      acc.status = "at_framer";
+      acc.location = acc.location ?? tag.trim();
+      continue;
+    }
+    if (rules.residences.some((r) => eq(r, tag))) {
+      hangIfUnknown();
+      acc.location = acc.location ?? tag.trim();
+      continue;
+    }
+    acc.unmapped.push(tag);
   }
   return acc;
+}
+
+function escapeRe(s: string) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -308,16 +312,15 @@ function attachmentIdentity(a: AirtableAttachment) {
 // Items
 // ---------------------------------------------------------------------------------------------
 
-const DEFAULT_OWNER = "Michael";
-
-export function mapItem(r: AirtableRecord): ItemRow {
+export function mapItem(r: AirtableRecord, rules: IngestRules): ItemRow {
   const f = r.fields;
   const artist = artistFromRecord(r);
   const tags = list(f[F.location]);
-  const loc = applyLocationRules(tags);
+  const loc = applyLocationRules(tags, rules);
 
   const adminFlags: string[] = [];
   if (loc.unmapped.length) adminFlags.push(`Unmapped location tag(s): ${loc.unmapped.join("; ")}`);
+  if (!loc.location && loc.status !== "sold") adminFlags.push("No location recorded");
   const yearText = text(f[F.year]);
   const year = parseYear(yearText);
   if (yearText && year === null && !/undated/i.test(yearText)) adminFlags.push(`Year not parseable: "${yearText}"`);
@@ -327,7 +330,14 @@ export function mapItem(r: AirtableRecord): ItemRow {
   if (currency && !purchaseCurrency) adminFlags.push(`Currency not a code: "${currency}"`);
 
   const owners = list(f[F.ownership]);
-  const ownerNames = owners.length ? owners : [DEFAULT_OWNER];
+  const ownerNames = owners.length ? owners : [rules.defaultOwner];
+  const ownerDefaulted = owners.length === 0;
+
+  // Airtable's "Last Modified" field is configured to watch Current Value only, so it is the date
+  // the value was last set — an "as at" for the valuation, and nothing else. Recorded as such.
+  const valueModified = text(f[F.lastModified]);
+  const currentValue = num(f[F.currentValue]);
+  const valuationDate = currentValue !== null && valueModified ? valueModified.slice(0, 10) : null;
 
   const atts: MappedAttachment[] = [
     ...attachments(f[F.lowResImageFiles]).map((a, i) => ({ group: "image" as const, attachment: a, sort_order: i })),
@@ -353,8 +363,9 @@ export function mapItem(r: AirtableRecord): ItemRow {
     purchase_price_zar: num(f[F.purchasePriceZar]),
     acquired_from: text(f[F.sourced]),
     credit_gallery: text(f[F.gallery]),
-    current_value: num(f[F.currentValue]),
+    current_value: currentValue,
     current_value_currency: purchaseCurrency,
+    valuation_date: valuationDate,
     status: loc.status,
     sold_year: loc.sold_year,
     location: loc.location,
@@ -370,11 +381,15 @@ export function mapItem(r: AirtableRecord): ItemRow {
     has_coa: yesNo(f[F.coaFlag]),
     high_res_note: text(f[F.highResNote]),
     owner_names: ownerNames,
+    owner_defaulted: ownerDefaulted,
     provenance_record_ids: linkedIds(f[F.provenance]),
-    airtable_modified_at: text(f[F.lastModified]),
+    airtable_modified_at: valueModified,
     attachments: atts,
+    raw: rawForStorage(r),
   };
 
+  // The hash covers the mapped row AND the whole raw record (minus rotating URLs), so an edit to a
+  // field we do not map yet still refreshes the stored copy — nothing goes stale.
   const content_hash = stableHash({
     ...row,
     attachments: atts.map((a) => ({ group: a.group, sort_order: a.sort_order, ...attachmentIdentity(a.attachment) })),
@@ -401,6 +416,7 @@ export function mapProvenance(r: AirtableRecord): ProvenanceRow | null {
     reviews: text(f[P.reviews]),
     added_info: text(f[P.addedInfo]),
     attachments: atts,
+    raw: rawForStorage(r),
   };
   return { ...row, content_hash: stableHash({ ...row, attachments: atts.map(attachmentIdentity) }) };
 }

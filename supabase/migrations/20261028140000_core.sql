@@ -88,6 +88,7 @@ begin
     auth.uid(),
     coalesce(
       nullif(current_setting('app.actor', true), ''),
+      nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'role',
       nullif(current_setting('request.jwt.claim.role', true), ''),
       current_user::text
     ),
@@ -222,6 +223,8 @@ create table public.items (
   airtable_raw jsonb,
   airtable_modified_at timestamptz,
   content_hash text,
+  -- set when the source record disappears; the ingest never deletes a work. Cleared if it returns.
+  source_removed_at timestamptz,
 
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -347,7 +350,7 @@ begin
   end loop;
 
   foreach t in array array['collections', 'collection_members', 'owners', 'artists', 'items', 'item_owners',
-                           'provenance_events', 'images', 'documents']
+                           'provenance_events', 'images', 'documents', 'ingest_runs']
   loop
     execute format('create trigger %I_audit after insert or update or delete on public.%I
                     for each row execute function public.audit_row()', t, t);
@@ -440,11 +443,18 @@ create policy ingest_runs_select on public.ingest_runs
 create policy audit_log_select on public.audit_log
   for select to authenticated using (collection_id is not null and public.is_collection_owner(collection_id));
 
--- Grants. Signed-in users may read (RLS decides which rows); the anonymous role may read nothing
--- at all — nothing renders without sign-in; the service role (and the ingest, as the database
--- owner) may write.
+-- Grants. Signed-in users may read (RLS decides which rows) and may not write — not even TRUNCATE,
+-- which RLS does not govern; the anonymous role may do nothing at all — nothing renders without
+-- sign-in; the service role (and the ingest, as the database owner) may write. A fresh Supabase
+-- project grants ALL to these roles by default, on existing tables and on future ones, so both the
+-- tables and the defaults are set explicitly here and in every later migration that adds a table.
 grant usage on schema public to authenticated, service_role;
 grant select on all tables in schema public to authenticated;
 grant all on all tables in schema public to service_role;
 grant usage, select on all sequences in schema public to service_role;
+revoke insert, update, delete, truncate, references, trigger on all tables in schema public from anon, authenticated;
 revoke all on all tables in schema public from anon;
+revoke all on all sequences in schema public from anon, authenticated;
+alter default privileges in schema public revoke all on tables from anon;
+alter default privileges in schema public revoke insert, update, delete, truncate, references, trigger on tables from authenticated;
+alter default privileges in schema public revoke all on sequences from anon, authenticated;

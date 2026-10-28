@@ -107,6 +107,20 @@ edit changes one row; a stranger and the anonymous role read nothing; a member c
 report; then `npm run ingest` for the pictures and documents; then `npm run ingest -- --report`. Run it
 twice: the second report shows `unchanged` everywhere and `created 0`.
 
+**Checked — 28 Oct 2026, cold review by a separate Claude session against `AGENTS.md`.** No blockers;
+thirteen findings, eleven fixed in the same PR: attachment identity by attachment id, not bytes
+(duplicates no longer flip every run) · the whole raw record in the content hash, so the stored copy
+never goes stale · provenance order taken from the work's own record · provenance raw copy written ·
+Supabase's default grants explicitly revoked for signed-in users, including TRUNCATE, which RLS does
+not govern, and for future tables · Airtable read sequentially, 429 waits the full penalty · a record
+that disappears from the source is **withdrawn, never deleted**, and returns whole · no skip switch for
+TLS verification; Supabase's CA file is required · residences, storage, framers, studios and owners
+moved out of the repository into `~/curator/ingest-rules.json` · audit trigger on `ingest_runs` · a
+nationality disagreement between two works by one artist is flagged · the report says how many works
+had ownership defaulted and how many provenance records were dropped · "no location" is flagged.
+Answered, not changed: `visibility` keeps `peer`/`public` (enum values are a seam, not a feature);
+the two unrecognised location tags stay flagged until the hygiene hour decides what they mean.
+
 **Next, proposed:** M1-04 sign-in before M1-03, so the first look is behind a door — then the gallery on
 the low-res pictures already copied, and M1-02 (masters, renditions, tiles) after the first look.
 
