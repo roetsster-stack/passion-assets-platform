@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
@@ -12,8 +12,11 @@ export function MfaClient() {
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [wrong, setWrong] = useState(false);
+  const started = useRef(false);
 
   useEffect(() => {
+    if (started.current) return; // development re-runs effects; enrol once
+    started.current = true;
     let cancelled = false;
     (async () => {
       try {
@@ -33,7 +36,8 @@ export function MfaClient() {
         if (enrolError || !enrol) throw enrolError ?? new Error("Could not start enrolment");
         if (!cancelled) setMode({ kind: "enrol", factorId: enrol.id, qr: enrol.totp.qr_code, secret: enrol.totp.secret });
       } catch (e) {
-        if (!cancelled) setMode({ kind: "error", message: e instanceof Error ? e.message : "Something went wrong." });
+        console.warn(`mfa: ${e instanceof Error ? e.message : String(e)}`);
+        if (!cancelled) setMode({ kind: "error", message: "The second factor could not be set up just now. Sign out and try the link again." });
       }
     })();
     return () => {

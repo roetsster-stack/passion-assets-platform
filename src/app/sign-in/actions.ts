@@ -27,10 +27,14 @@ export async function requestLink(_prev: SignInState, formData: FormData): Promi
   const h = await headers();
   const origin = h.get("origin") ?? (h.get("host") ? `https://${h.get("host")}` : "");
 
-  await supabase.auth.signInWithOtp({
+  const { error } = await supabase.auth.signInWithOtp({
     email,
     options: { shouldCreateUser: false, emailRedirectTo: `${origin}/auth/confirm` },
   });
   // Whatever Supabase answered — unknown address, rate limit — the person sees the same quiet line.
+  // The server log keeps the reason (the code only, never the address) for whoever is verifying.
+  if (error && error.code !== "otp_disabled" && error.code !== "signup_disabled") {
+    console.warn(`sign-in: ${error.code ?? error.name}`);
+  }
   return { sent: true };
 }

@@ -2,7 +2,8 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   // Security of the register is an architectural requirement (Concept Brief v2.1 §11, §15.2).
-  // Baseline headers from day one; CSP is tightened in M1-04 once the image host is known.
+  // Baseline headers from day one. A nonce-based Content-Security-Policy comes with M1-02, when the
+  // image host is known and the picture surfaces exist to test it against.
   poweredByHeader: false,
   async headers() {
     return [

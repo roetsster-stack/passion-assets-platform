@@ -14,6 +14,12 @@ export default function MfaPage() {
         <MfaClient />
         <p className="mt-16 font-sans text-[11px] uppercase tracking-[0.2em] text-ink-faint">private</p>
       </div>
+      {/* A session that cannot finish the second factor needs a way out. */}
+      <form action="/sign-out" method="post" className="fixed bottom-5 right-6">
+        <button type="submit" className="font-sans text-[11px] uppercase tracking-[0.2em] text-ink-faint transition-colors hover:text-ink-muted">
+          sign out
+        </button>
+      </form>
     </main>
   );
 }

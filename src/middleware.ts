@@ -20,7 +20,6 @@ export async function middleware(request: NextRequest) {
 
   let signedIn = false;
   let currentLevel: AssuranceLevel | null = null;
-  let nextLevel: AssuranceLevel | null = null;
 
   if (url && anonKey) {
     const supabase = createServerClient(url, anonKey, {
@@ -45,11 +44,10 @@ export async function middleware(request: NextRequest) {
     if (user) {
       const { data } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
       currentLevel = (data?.currentLevel as AssuranceLevel | null) ?? "aal1";
-      nextLevel = (data?.nextLevel as AssuranceLevel | null) ?? "aal1";
     }
   }
 
-  const decision = decide({ path, signedIn, currentLevel, nextLevel });
+  const decision = decide({ path, signedIn, currentLevel });
   if (decision.kind === "redirect") {
     const to = request.nextUrl.clone();
     to.pathname = decision.to;

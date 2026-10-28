@@ -13,16 +13,15 @@ export type DoorState = {
   path: string;
   /** Is there a session at all? */
   signedIn: boolean;
-  /** The level the current session has reached; null when signed out. */
+  /** The level the current session has reached; null when signed out. Whether a factor is
+   *  enrolled yet does not matter here: the second-factor screen enrols or challenges itself. */
   currentLevel: AssuranceLevel | null;
-  /** The level the session can reach: aal2 when a factor is enrolled, aal1 when none is. */
-  nextLevel: AssuranceLevel | null;
 };
 
 export type Decision = { kind: "allow" } | { kind: "redirect"; to: "/sign-in" | "/mfa" | "/" };
 
 /** Routes reachable without any session. */
-export const PUBLIC_PATHS = new Set(["/sign-in", "/auth/confirm"]);
+export const PUBLIC_PATHS = new Set(["/sign-in", "/auth/confirm", "/auth/session"]);
 
 /** Routes reachable with a session that has not yet passed the second factor. */
 export const FIRST_FACTOR_PATHS = new Set(["/mfa", "/sign-out"]);
