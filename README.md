@@ -30,8 +30,11 @@ npm run dev
 ## Layout
 
 ```
-src/app/            routes and surfaces (App Router)
-src/lib/supabase/   server and browser clients (RLS applies to both)
+src/app/            routes and surfaces (App Router): / (the wall), /sign-in, /auth/confirm, /mfa, /sign-out
+src/middleware.ts   the door: nothing renders without sign-in and the second factor
+src/lib/auth/       the door's decision, as a pure function
+src/lib/ingest/     the Airtable ingest (npm run ingest); src/lib/supabase/ the server and browser clients (RLS applies to both)
+scripts/            ingest.ts and invite.ts — run on Workshop with ~/curator/.env
 supabase/migrations one SQL file per change; the schema is never edited in the dashboard
 docs/specs/         one page per feature, committed with the feature
 tests/              vitest

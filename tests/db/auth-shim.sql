@@ -16,14 +16,31 @@ create table if not exists auth.users (
   email text
 );
 
--- Supabase's auth.uid() reads the JWT subject claim; here it reads the same setting the tests set.
+-- Supabase's auth.jwt() returns the session's claims; auth.uid() the subject. Here they read the
+-- same settings the tests set — the JSON `request.jwt.claims` first, the legacy per-claim setting
+-- as a fallback — exactly as Supabase's own definitions do.
+create or replace function auth.jwt()
+returns jsonb
+language sql
+stable
+as $$
+  select coalesce(
+    nullif(current_setting('request.jwt.claims', true), '')::jsonb,
+    '{}'::jsonb
+  );
+$$;
+
 create or replace function auth.uid()
 returns uuid
 language sql
 stable
 as $$
-  select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid;
+  select coalesce(
+    nullif(auth.jwt() ->> 'sub', ''),
+    nullif(current_setting('request.jwt.claim.sub', true), '')
+  )::uuid;
 $$;
 
 grant usage on schema auth to anon, authenticated, service_role;
 grant execute on function auth.uid() to public;
+grant execute on function auth.jwt() to public;
