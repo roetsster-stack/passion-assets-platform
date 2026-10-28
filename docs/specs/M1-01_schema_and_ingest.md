@@ -11,14 +11,15 @@ anything being lost or duplicated.
 I run one command on Workshop. A minute later every work I keep in Airtable is in the platform:
 the artist, the title, the year, the medium, the dimensions, what I paid and when, where it is and
 what state it is in, who owns it, the line of provenance, the invoice and the certificate, and the
-photograph I have today. I sign in and see the count on the empty state change from 0 to the number
-of works I own, including the ones I have sold. Tomorrow Brett corrects a record in Airtable; I run
+photograph I have today. The ingest prints its report — works, artists, provenance lines, pictures,
+documents, and how many records it flagged for my eye — and the empty state is ready to show the
+count the moment sign-in exists (M1-04). Tomorrow Brett corrects a record in Airtable; I run
 the same command and only that record changes. Nothing I entered in Airtable is thrown away, even
 the fields we have not yet decided how to use — they travel with the work until we do.
 
 ## GOOD LOOKS LIKE
 - Every Airtable record is a work in Postgres, linked to its artist, its provenance events, its
-  documents and its images; the counts match the base exactly, sold works included.
+  documents and its images; the counts in the ingest report match the base exactly, sold works included.
 - Running the ingest twice in a row changes nothing; a single edit in Airtable changes exactly one row.
 - The audit log shows the import: who ran it, when, what was created, updated, unchanged.
 - Nothing is readable without being a signed-in member of the collection — proved by a test that
@@ -91,3 +92,21 @@ collection base; an R2 API token for the two private buckets. All into `~/curato
 **Recommendations on the four trade-offs:** 1 — now (it is two hours, it fixes the per-work
 nationality error class permanently, and M2 inherits it). 2 — now (the first look needs pictures,
 and Airtable's links expire). 3 — by rule, with the unmapped remainder flagged, not lost. 4 — yes.
+
+---
+
+## BUILT — 28 Oct 2026 (PR #1, branch `m1-01-schema-ingest`)
+
+All four trade-offs taken as recommended. What shipped: one migration (`supabase/migrations/20261028140000_core.sql`),
+the ingest (`src/lib/ingest/*`, `npm run ingest`), the empty state reading its count through row-level
+security, and the tests — the mapping against a synthetic fixture, and the ingest and the security
+policies against a real Postgres in CI (first run creates everything; second run changes nothing; one
+edit changes one row; a stranger and the anonymous role read nothing; a member cannot write).
+
+**Verify on Workshop:** `npm run ingest -- --skip-attachments` (records only, under a minute), read the
+report; then `npm run ingest` for the pictures and documents; then `npm run ingest -- --report`. Run it
+twice: the second report shows `unchanged` everywhere and `created 0`.
+
+**Next, proposed:** M1-04 sign-in before M1-03, so the first look is behind a door — then the gallery on
+the low-res pictures already copied, and M1-02 (masters, renditions, tiles) after the first look.
+
