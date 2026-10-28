@@ -15,6 +15,9 @@ import { collectionRecords, fakeFetch, tables } from "../ingest/fixture";
 const url = process.env.TEST_DATABASE_URL;
 const root = path.resolve(__dirname, "..", "..");
 
+// In CI the database is always there; a silent skip would look like a pass. Refuse that.
+if (process.env.CI && !url) throw new Error("TEST_DATABASE_URL is not set in CI — the database tests would be skipped.");
+
 describe.skipIf(!url)("M1-01 · the record arrives", () => {
   let db: Client;
   const USER_A = "11111111-1111-4111-8111-111111111111"; // a member (owner)
