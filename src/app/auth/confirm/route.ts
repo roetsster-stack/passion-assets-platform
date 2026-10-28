@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
 
   const fail = () => NextResponse.redirect(`${origin}/sign-in`);
 
-  let supabase;
+  let supabase: Awaited<ReturnType<typeof createClient>>;
   try {
     supabase = await createClient();
   } catch {

@@ -17,7 +17,7 @@ export async function requestLink(_prev: SignInState, formData: FormData): Promi
     return { sent: false, error: "That does not look like an email address." };
   }
 
-  let supabase;
+  let supabase: Awaited<ReturnType<typeof createClient>>;
   try {
     supabase = await createClient();
   } catch {
