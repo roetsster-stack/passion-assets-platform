@@ -4,7 +4,10 @@ This is **The Curator** (working title): a platform where a serious collector li
 collection. One shared record of truth, three doors (collector, family office, advisor). V1 is the
 **Collector's Experience layer on the founder's own art collection**, migrated out of Airtable.
 
-The founder (Michael) orchestrates; agents build; a different model family (Codex) checks. He never
+The founder (Michael) orchestrates; agents build; an independent checker reviews. **The checker, by
+ruling of 28 Oct 2026, is a separate Claude session that has seen none of the build conversation**,
+briefed by `AGENTS.md`; Codex (a different model family) is deferred, and its workflow
+(`.github/workflows/codex-review.yml`) stays dormant until an `OPENAI_API_KEY` secret exists. He never
 edits code. He reads the PR note, not the diff. Build sessions normally run on his always-on Mac
 ("Workshop"); the system of record for specs, decisions and the log is his project folder, not this repo.
 
@@ -32,8 +35,9 @@ values live in Vercel and in `~/curator/.env` on Workshop.
 ## The loop — one feature at a time
 
 Spec (one page, in `docs/specs/`, from the founder) → Plan (propose approach + trade-offs; he approves
-at 70%) → Build (branch; code + tests + a short PR note) → Check (Codex review) → Verify (CI green;
-he judges on the Vercel preview) → Merge → Log. One to two features a week.
+at 70%) → Build (branch; code + tests + a short PR note) → Check (a cold review by a separate agent
+against `AGENTS.md`, posted on the PR) → Verify (CI green; he judges on the Vercel preview) → Merge →
+Log. One to two features a week.
 
 Conventions:
 - Branch per feature: `m1-01-schema-ingest`, `m1-03-gallery` … PR title = spec id + outcome.
