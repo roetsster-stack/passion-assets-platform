@@ -5,7 +5,8 @@ the stack and the loop. Everything below assumes it.
 
 ## Your job on a pull request
 
-You are the independent reviewer from a different model family. The builder has not seen your
+You are the independent reviewer — a separate session that has seen none of the build conversation
+(Codex, from a different model family, when its workflow is enabled). The builder has not seen your
 findings and you have not seen its reasoning — keep it that way. Review the diff cold, against:
 
 1. **Correctness and edge cases** — what breaks on real data: empty fields, duplicates, re-runs,
