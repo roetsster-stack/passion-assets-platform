@@ -2,7 +2,7 @@
  * The ingest and the row-level security, against a real Postgres. Runs when TEST_DATABASE_URL is
  * set (CI starts one); skipped otherwise, so `npm test` still passes on a laptop with no database.
  */
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { Client } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -42,11 +42,15 @@ describe.skipIf(!url)("M1-01 · the record arrives", () => {
     };
   }
 
-  async function asUser(userId: string | null, role: "authenticated" | "anon", sql: string) {
+  // A session is a JWT; Supabase exposes its claims to SQL as `request.jwt.claims`. `aal` is the
+  // assurance level: aal1 after the emailed link, aal2 after the authenticator code.
+  async function asUser(userId: string | null, role: "authenticated" | "anon", sql: string, aal: "aal1" | "aal2" = "aal2") {
     await db.query("begin");
     try {
       await db.query(`set local role ${role}`);
-      if (userId) await db.query("select set_config('request.jwt.claim.sub', $1, true)", [userId]);
+      if (userId) {
+        await db.query("select set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: userId, role, aal })]);
+      }
       const res = await db.query(sql);
       return res.rows;
     } finally {
@@ -64,7 +68,11 @@ describe.skipIf(!url)("M1-01 · the record arrives", () => {
     await db.query(
       "alter default privileges in schema public grant all on tables to anon, authenticated, service_role; alter default privileges in schema public grant all on sequences to anon, authenticated, service_role;",
     );
-    await db.query(readFileSync(path.join(root, "supabase", "migrations", "20261028140000_core.sql"), "utf8"));
+    // Every migration, in order — the schema as production will have it.
+    const dir = path.join(root, "supabase", "migrations");
+    for (const file of readdirSync(dir).filter((f) => f.endsWith(".sql")).sort()) {
+      await db.query(readFileSync(path.join(dir, file), "utf8"));
+    }
     await db.query("insert into auth.users (id, email) values ($1, 'a@example.test'), ($2, 'b@example.test')", [USER_A, USER_B]);
   });
 
@@ -200,6 +208,13 @@ describe.skipIf(!url)("M1-01 · the record arrives", () => {
 
     const nobody = await asUser(null, "authenticated", "select count(*)::int as n from items");
     expect(nobody[0].n).toBe(0);
+
+    // The second factor is enforced by the database: a member who has passed only the emailed
+    // link (aal1) reads nothing, from any table — not a count, not an audit row.
+    for (const table of ALL_TABLES) {
+      const halfway = await asUser(USER_A, "authenticated", `select count(*)::int as n from ${table}`, "aal1");
+      expect(halfway[0].n, `${table} at aal1`).toBe(0);
+    }
 
     await expect(asUser(null, "anon", "select count(*) from public.items")).rejects.toThrow(/permission denied/);
   });
