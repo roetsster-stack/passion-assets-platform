@@ -35,7 +35,9 @@ export async function middleware(request: NextRequest) {
       },
     });
 
-    // getUser() validates the token with Supabase; getSession() would trust the cookie. Never the latter.
+    // getUser() validates the token with Supabase; getSession() would trust the cookie. Never the latter
+    // here. (The image door reads getSession() only as a short-circuit after this guard has run; the
+    // database verifies the same token on its query, so the row, not the cookie, decides.)
     const {
       data: { user },
     } = await supabase.auth.getUser();
