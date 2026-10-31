@@ -12,7 +12,8 @@ import type { Work } from "@/lib/gallery/types";
  *
  * A matted photograph hangs on a raised mat (the image's own padding) and never past its own
  * pixels: `own-size` (globals.css) turns its pixel size into --cap-w / --cap-h at this screen's
- * density. A work with no photograph hangs as its label.
+ * density, and the allowance added for the mat is exactly the padding at each breakpoint, so the
+ * content box can never exceed the cap. A work with no photograph hangs as its label.
  */
 
 type Place = "cell" | "stage";
@@ -29,8 +30,8 @@ export function Plate({ work, place, priority = false }: { work: Work; place: Pl
     const sizing =
       t === "matted"
         ? place === "cell"
-          ? "own-size bg-gallery-raised p-5 sm:p-6 max-w-[min(100%,calc(var(--cap-w)+3rem))] max-h-[min(100%,calc(var(--cap-h)+3rem))]"
-          : "own-size bg-gallery-raised p-8 sm:p-12 max-w-[min(100%,calc(var(--cap-w)+6rem))] max-h-[min(70vh,calc(var(--cap-h)+6rem))]"
+          ? "own-size bg-gallery-raised p-5 sm:p-6 max-w-[min(100%,calc(var(--cap-w)+2.5rem))] max-h-[min(100%,calc(var(--cap-h)+2.5rem))] sm:max-w-[min(100%,calc(var(--cap-w)+3rem))] sm:max-h-[min(100%,calc(var(--cap-h)+3rem))]"
+          : "own-size bg-gallery-raised p-8 sm:p-12 max-w-[min(100%,calc(var(--cap-w)+4rem))] max-h-[min(70vh,calc(var(--cap-h)+4rem))] sm:max-w-[min(100%,calc(var(--cap-w)+6rem))] sm:max-h-[min(70vh,calc(var(--cap-h)+6rem))]"
         : t === "contained" && place === "stage"
           ? "max-h-[min(100%,70vh)] max-w-[min(100%,70vw)]"
           : "max-h-full max-w-full";

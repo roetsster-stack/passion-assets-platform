@@ -1,5 +1,6 @@
 import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { parseR2Jurisdiction, r2Endpoint } from "@/lib/ingest/storage";
 import { SIGNED_URL_SECONDS } from "./door";
 
 /**
@@ -7,15 +8,9 @@ import { SIGNED_URL_SECONDS } from "./door";
  * the write key stays on Workshop. Reads env at call time so the build never needs the keys.
  *
  * R2_JURISDICTION: "eu" or "fedramp" when the buckets were created in that jurisdiction — such a
- * bucket answers only at its jurisdiction's endpoint.
+ * bucket answers only at its jurisdiction's endpoint. The endpoint rule and the parser are the
+ * ingest's own (`@/lib/ingest/storage`), so the writer and the door can never disagree.
  */
-
-export function r2Endpoint(accountId: string, jurisdiction?: string): string {
-  const j = jurisdiction?.trim();
-  if (!j) return `https://${accountId}.r2.cloudflarestorage.com`;
-  if (j === "eu" || j === "fedramp") return `https://${accountId}.${j}.r2.cloudflarestorage.com`;
-  throw new Error(`R2_JURISDICTION must be "eu", "fedramp" or unset, not "${j}".`);
-}
 
 let client: S3Client | null = null;
 
@@ -29,7 +24,7 @@ function r2(): S3Client {
   }
   client = new S3Client({
     region: "auto",
-    endpoint: r2Endpoint(accountId, process.env.R2_JURISDICTION),
+    endpoint: r2Endpoint(accountId, parseR2Jurisdiction(process.env.R2_JURISDICTION)),
     credentials: { accessKeyId, secretAccessKey },
   });
   return client;

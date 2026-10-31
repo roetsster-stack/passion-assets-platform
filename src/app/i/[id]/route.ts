@@ -16,6 +16,15 @@ function notFound() {
   return new NextResponse(null, { status: 404, headers: { "Cache-Control": "private, no-store" } });
 }
 
+// A signing failure is almost always "R2 is not configured" on a fresh preview. The browser sees
+// 404 like everything else; the server log says why — once, so a wall of pictures is one line.
+let signingFailureLogged = false;
+function logSigningFailure(err: unknown) {
+  if (signingFailureLogged) return;
+  signingFailureLogged = true;
+  console.error("image door: signing failed —", err instanceof Error ? err.message : String(err));
+}
+
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   if (!isImageId(id)) return notFound();
@@ -44,7 +53,8 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
   let url: string;
   try {
     url = await signImage(decision.bucket, decision.key, decision.contentType);
-  } catch {
+  } catch (err) {
+    logSigningFailure(err);
     return notFound();
   }
   // The redirect may be reused by this browser only, and only while the address behind it lives.

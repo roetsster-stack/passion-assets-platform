@@ -145,8 +145,9 @@ copy an image address into a private window → nothing.
   …, March 2016"), and its provenance as entered. ← and → walk the collection in the wall's order;
   Escape or "the wall" (top right) returns to the same place on the wall.
 - **The image door (`/i/…`).** Every picture is fetched through it. It checks the person asking against
-  the database, then hands the browser a private address that stops working after five minutes. Not a
-  member, not signed in, or not a picture that may be shown: the answer is "not found".
+  the database, then hands the browser a private address that stops working after five minutes. Not
+  signed in: the door, like every address, sends you to the sign-in screen. Signed in but not a member,
+  or not a picture that may be shown: "not found".
 - **Three looks** on the same works, same order, same words: `?look=1` Monograph (the default),
   `?look=2` Salon (hero at four-fifths with its line showing, four across), `?look=3` Flow (one work per
   screen). The choice is remembered until the browser closes.
@@ -175,9 +176,10 @@ tests (69, including the database tests) and build all pass.
 **Before the preview shows pictures (once).** As in the plan: create the read-only R2 key
 `curator-app-read` (Object Read, on `curator-masters` and `curator-renditions`), then in Vercel, for
 Production and Preview, set `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` (the read-only
-pair), `R2_JURISDICTION` = `eu` and `R2_BUCKET_MASTERS` = `curator-masters`. Without them the wall
-still opens and the works are in their places with their words, but no picture shows: every picture
-answers "not found".
+pair) and `R2_JURISDICTION` = `eu`. (`R2_BUCKET_MASTERS` does no harm there but is not read by the app:
+each picture's row names its own bucket.) Without them the wall still opens and the works are in their
+places with their words, but no picture shows: every picture answers "not found", and the server log
+says why.
 
 **How to verify on the preview.**
 1. Sign in (link, then authenticator). One work fills the screen; nothing is written on it. Move the
@@ -192,4 +194,21 @@ answers "not found".
 6. Right-click a picture → copy image address → open it in a private window: you get the sign-in
    screen, not the picture. Then right-click a picture → open image in new tab: the address bar shows
    a long storage address. Copy it, wait five minutes, open it again: it has stopped working.
-7. View the page source (⌥⌘U) and search for a price, a room or an owner's name: none is there.
+7. View the page source (⌥⌘U) and search for a price, a room or an owner's name: none is there. Read
+   the provenance lines on a few single-work screens too — they are shown as entered in Airtable, so a
+   line that names a price belongs to the hygiene hour, not to the code.
+
+**Checked — 31 Oct, cold review by a separate Claude session against `AGENTS.md`.** Verdict: merge; no
+blockers. Four should-fixes, all taken in the same PR: the "no larger than it truly is" rule leaked below
+640 px (the mat's allowance now follows the padding at each breakpoint) and between density steps
+(1.25 / 1.75 / 2.5 dppx added); in Monograph a portrait hero that filled the height had its line over its
+foot, so the line now has a band of its own and the stage is the viewport less that band; the endpoint
+rule and the jurisdiction parser were duplicated between the ingest and the door — one definition now,
+in the ingest's storage module; and the signed address itself is tested (host at the EU jurisdiction,
+five-minute lifetime, private cache rule, never the secret). Notes taken: `next/image` is switched off in
+`next.config.ts` so its optimiser can never become an unauthenticated cache; a signing failure is logged
+once on the server; the middleware comment names the door's short-circuit; this note corrects two lines.
+Deferred, with the reason: the picture chosen for a work is its first (hero-flagged) photograph, not its
+largest — a decision for Michael; `gifted` works (none yet) would hang among the held; the read-only key's
+reach over the masters bucket is re-scoped in M1-02; provenance text is shown verbatim, so step 7 of the
+verify list now includes it.

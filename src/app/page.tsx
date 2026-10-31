@@ -82,13 +82,17 @@ function Hero({ work, look }: { work: Work; look: Look }) {
       </section>
     );
   }
+  // The line lives in a band of its own below the work (never over it): the stage is the viewport
+  // less that band, so a portrait photograph that fills the height still leaves the band clear.
   return (
-    <section className="relative h-[100svh] w-full">
-      <Link id={`w-${work.id}`} href={`/w/${work.id}`} className="flex h-full w-full items-center justify-center outline-none">
+    <section className="relative flex h-[100svh] w-full flex-col">
+      <Link id={`w-${work.id}`} href={`/w/${work.id}`} className="flex min-h-0 w-full flex-1 items-center justify-center outline-none">
         <Plate work={work} place="stage" priority />
       </Link>
-      <div className="absolute inset-x-0 bottom-6">
-        <IntentCaption text={tombstoneLine(work)} />
+      <div className="flex h-16 shrink-0 items-center">
+        <div className="w-full">
+          <IntentCaption text={tombstoneLine(work)} />
+        </div>
       </div>
     </section>
   );
