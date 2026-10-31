@@ -23,6 +23,34 @@ body {
   text-rendering: optimizeLegibility;
 }
 
+/*
+  A poor photograph hangs no larger than it truly is: never past one image pixel per device pixel.
+  The element carries its pixel size as --w and --h (Plate.tsx); --cap-w and --cap-h are that size
+  in CSS pixels at this screen's density, for the element's own max-width and max-height to use.
+*/
+.own-size {
+  --cap-w: calc(var(--w) * 1px);
+  --cap-h: calc(var(--h) * 1px);
+}
+@media (min-resolution: 1.5dppx) {
+  .own-size {
+    --cap-w: calc(var(--w) * 1px / 1.5);
+    --cap-h: calc(var(--h) * 1px / 1.5);
+  }
+}
+@media (min-resolution: 2dppx) {
+  .own-size {
+    --cap-w: calc(var(--w) * 1px / 2);
+    --cap-h: calc(var(--h) * 1px / 2);
+  }
+}
+@media (min-resolution: 3dppx) {
+  .own-size {
+    --cap-w: calc(var(--w) * 1px / 3);
+    --cap-h: calc(var(--h) * 1px / 3);
+  }
+}
+
 ::selection {
   background: var(--color-ink);
   color: var(--color-gallery);

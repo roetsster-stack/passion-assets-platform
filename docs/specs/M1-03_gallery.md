@@ -128,3 +128,68 @@ scroll → the body of work, newest first, three across, captions only on hover 
 hangs small and matted, a work without one hangs as its label → the two sold works at the end under a
 hairline → tap a work → alone, tombstone, acquisition line, provenance → arrows walk, Escape returns →
 copy an image address into a private window → nothing.
+
+---
+
+## BUILT — 31 Oct 2026
+
+**What changed.** The holding page is gone; past the door, the collection hangs.
+- **The wall (`/`).** One work fills the screen on gallery dark, with nothing written on it; move the
+  pointer, touch or press a key and its line (artist, title, year) appears beneath it, then fades.
+  Scroll for the body of work: newest acquisition first, captions only on hover, focus or touch.
+  A sharp photograph fills its place; a mid-sized one is held back; a small one hangs small on a raised
+  mat, never larger than it truly is; a work with no photograph hangs as a small label card in its place.
+  Then a hairline, "Formerly in the collection", and the two sold works. Sign out sits at the very end.
+- **One work (`/w/…`).** Tap any work: it is alone, as large as its photograph allows, with its
+  tombstone (artist, title, year; medium, dimensions, edition), one line on how it came ("Acquired from
+  …, March 2016"), and its provenance as entered. ← and → walk the collection in the wall's order;
+  Escape or "the wall" (top right) returns to the same place on the wall.
+- **The image door (`/i/…`).** Every picture is fetched through it. It checks the person asking against
+  the database, then hands the browser a private address that stops working after five minutes. Not a
+  member, not signed in, or not a picture that may be shown: the answer is "not found".
+- **Three looks** on the same works, same order, same words: `?look=1` Monograph (the default),
+  `?look=2` Salon (hero at four-fifths with its line showing, four across), `?look=3` Flow (one work per
+  screen). The choice is remembered until the browser closes.
+
+**Why.** The spec's job: open the address, pass the door, and stand in front of the works — not a list.
+Nothing of value, price, location or ownership is read by these pages at all: the gallery is built on a
+narrow record that has no field for them, and a test proves a row carrying them comes out without them.
+
+**Choices made in the build, for your eye.**
+- The hero is not repeated in the grid beneath it; it is in the walk (the arrows) in its proper place.
+- Full-bleed shows the whole work, edge to edge in one direction, never cropped.
+- The hero is the newest held work whose photograph is at least 1,600 px; if none qualified, the wall
+  would simply open on the grid.
+- Works withdrawn from Airtable stay in the register but do not hang.
+- The R2 setting for the EU bucket is read here as well as in the ingest (PR for `m1-01-r2-jurisdiction`);
+  when both are merged the two small endpoint helpers can become one.
+- One new building block: `@aws-sdk/s3-request-presigner`, from the same family as the storage client
+  already in use. Nothing else was added.
+
+**Tests.** The order of the wall, the hero choice, the treatment thresholds, the tombstone and
+acquisition lines, the looks, what a row may carry onto a page, the image door's decision (including
+that a master is never served), and — against a real Postgres — that a non-member reads zero image
+rows, even asking for one by its id, and a half-signed-in member reads none either. Lint, typecheck,
+tests (69, including the database tests) and build all pass.
+
+**Before the preview shows pictures (once).** As in the plan: create the read-only R2 key
+`curator-app-read` (Object Read, on `curator-masters` and `curator-renditions`), then in Vercel, for
+Production and Preview, set `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` (the read-only
+pair), `R2_JURISDICTION` = `eu` and `R2_BUCKET_MASTERS` = `curator-masters`. Without them the wall
+still opens and the works are in their places with their words, but no picture shows: every picture
+answers "not found".
+
+**How to verify on the preview.**
+1. Sign in (link, then authenticator). One work fills the screen; nothing is written on it. Move the
+   mouse: its line appears, then fades.
+2. Scroll: newest first, three across; hover a work for its line. Find a small photograph — it hangs
+   small on a slightly lighter mat — and, if any, a work hanging as its label.
+3. At the end: a hairline, "Formerly in the collection", the two sold works.
+4. Click a work: alone, its tombstone, how it came, its provenance. Press → and ← to walk; Escape
+   returns you to the same place on the wall.
+5. Open `/?look=2`, then `/?look=3`, then `/` again (it stays on the last look until the browser
+   closes). Say which hangs best; the follow-up PR keeps that one.
+6. Right-click a picture → copy image address → open it in a private window: you get the sign-in
+   screen, not the picture. Then right-click a picture → open image in new tab: the address bar shows
+   a long storage address. Copy it, wait five minutes, open it again: it has stopped working.
+7. View the page source (⌥⌘U) and search for a price, a room or an owner's name: none is there.
