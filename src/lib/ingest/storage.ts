@@ -10,14 +10,27 @@ export interface ObjectStore {
   putIfAbsent(bucket: string, key: string, body: Buffer, contentType?: string): Promise<{ written: boolean }>;
 }
 
+export type R2Jurisdiction = "eu" | "fedramp";
+
+/**
+ * R2's S3 endpoint. A bucket created in a jurisdiction (EU for data residency) is only reachable
+ * at that jurisdiction's endpoint; on the default one it answers "bucket does not exist".
+ */
+export function r2Endpoint(accountId: string, jurisdiction?: R2Jurisdiction): string {
+  return jurisdiction
+    ? `https://${accountId}.${jurisdiction}.r2.cloudflarestorage.com`
+    : `https://${accountId}.r2.cloudflarestorage.com`;
+}
+
 export function createR2Store(env: {
   accountId: string;
   accessKeyId: string;
   secretAccessKey: string;
+  jurisdiction?: R2Jurisdiction;
 }): ObjectStore {
   const client = new S3Client({
     region: "auto",
-    endpoint: `https://${env.accountId}.r2.cloudflarestorage.com`,
+    endpoint: r2Endpoint(env.accountId, env.jurisdiction),
     credentials: { accessKeyId: env.accessKeyId, secretAccessKey: env.secretAccessKey },
   });
 
