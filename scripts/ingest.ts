@@ -6,7 +6,8 @@
  *   npm run ingest -- --report          print what is in the register, change nothing
  *
  * Needs, in ~/curator/.env: DATABASE_URL, AIRTABLE_PAT, AIRTABLE_BASE_ID, R2_ACCOUNT_ID,
- * R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET_MASTERS. Optional: CURATOR_COLLECTION_NAME.
+ * R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET_MASTERS. Optional: CURATOR_COLLECTION_NAME,
+ * R2_JURISDICTION ("eu" when the buckets were created in the EU jurisdiction).
  */
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -15,7 +16,7 @@ import { loadEnvFile, required } from "../src/lib/env";
 import { createAirtableSource } from "../src/lib/ingest/airtable";
 import { loadRules } from "../src/lib/ingest/rules";
 import { runIngest, type Counts, type IngestReport } from "../src/lib/ingest/run";
-import { createR2Store } from "../src/lib/ingest/storage";
+import { createR2Store, type R2Jurisdiction } from "../src/lib/ingest/storage";
 
 const args = new Set(process.argv.slice(2));
 const envFile = loadEnvFile();
@@ -37,6 +38,14 @@ function sslFor(url: string) {
     return { ca: readFileSync(caPath, "utf8"), rejectUnauthorized: true };
   }
   return { rejectUnauthorized: true };
+}
+
+/** R2_JURISDICTION: "eu" or "fedramp" when the buckets were created in that jurisdiction; unset otherwise. */
+function r2Jurisdiction(): R2Jurisdiction | undefined {
+  const j = process.env.R2_JURISDICTION?.trim();
+  if (!j) return undefined;
+  if (j === "eu" || j === "fedramp") return j;
+  throw new Error(`R2_JURISDICTION must be "eu", "fedramp" or unset, not "${j}".`);
 }
 
 function line(label: string, c: Counts) {
@@ -108,6 +117,7 @@ async function main() {
           accountId: required("R2_ACCOUNT_ID"),
           accessKeyId: required("R2_ACCESS_KEY_ID"),
           secretAccessKey: required("R2_SECRET_ACCESS_KEY"),
+          jurisdiction: r2Jurisdiction(),
         });
     const result = await runIngest({
       db,
