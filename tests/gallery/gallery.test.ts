@@ -1,11 +1,10 @@
 /**
  * M1-03 · the gallery's rules, without a browser or a database: the order of the wall, the hero,
- * how a photograph hangs, the words under it, the looks, and what a row may carry onto a page.
+ * how a photograph hangs, the words under it, and what a row may carry onto a page.
  * Synthetic works only — no real titles, sources or dates belong in a repository.
  */
 import { describe, expect, it } from "vitest";
 import { chooseHero } from "@/lib/gallery/hero";
-import { chooseLook, parseLook } from "@/lib/gallery/looks";
 import { hang, neighbours, walk } from "@/lib/gallery/order";
 import { firstPicture, toWork, type WorkRow } from "@/lib/gallery/read";
 import { acquisitionLine, monthYear, tombstoneDetail, tombstoneLine } from "@/lib/gallery/tombstone";
@@ -121,16 +120,6 @@ describe("the words", () => {
     expect(acquisitionLine({ acquiredFrom: null, acquiredOn: "2025-10-30" })).toBe("Acquired October 2025");
     expect(acquisitionLine({ acquiredFrom: " ", acquiredOn: null })).toBeNull();
     expect(monthYear("not a date")).toBeNull();
-  });
-});
-
-describe("the looks", () => {
-  it("the address wins, then the remembered look, then Monograph", () => {
-    expect(chooseLook("2", "3")).toBe(2);
-    expect(chooseLook(undefined, "3")).toBe(3);
-    expect(chooseLook(undefined, undefined)).toBe(1);
-    expect(chooseLook("9", "nonsense")).toBe(1);
-    expect(parseLook(["3", "1"])).toBe(3);
   });
 });
 

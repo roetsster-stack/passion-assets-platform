@@ -212,3 +212,21 @@ Deferred, with the reason: the picture chosen for a work is its first (hero-flag
 largest — a decision for Michael; `gifted` works (none yet) would hang among the held; the read-only key's
 reach over the masters bucket is re-scoped in M1-02; provenance text is shown verbatim, so step 7 of the
 verify list now includes it.
+
+---
+
+## JUDGED — 2 Nov 2026 (Michael, on the preview)
+
+"The look is great on the black background. Even at smaller resolutions it's clear. It renders well and all
+3 looks have merit." Ruled, with the merge of PR #4: **Monograph is the wall** (Q5 a as specced); **Flow stays in
+the code, unwired** (`src/app/_gallery/Flow.tsx`), as the seed of M3-01's ambient mode; **Salon goes**. The
+`?look=` switch, its cookie and its tests are removed in the follow-up (`m1-03-the-look`). Also asked: the years
+verified (→ Brett's hygiene hour) and hi-res images with urgency (→ M1-02, next).
+
+**What it took to see pictures on the preview** — all configuration, no code, and worth a line for next time:
+the Supabase Site URL had been set to the Vercel dashboard page; the redirect pattern needed the team slug
+(`*-passion-assets.vercel.app`) and the Magic Link template `{{ .RedirectTo }}` for a preview sign-in to land on
+the preview; the R2 variables had been saved as the *descriptions* of their values rather than the values, and
+not for Preview. The door's one-line server log ("signing failed — …") and the browser's Network pane found each
+step. Give dashboard values as bare strings to paste, never as prose.
+

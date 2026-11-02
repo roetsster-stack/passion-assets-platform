@@ -1,14 +1,11 @@
 import Link from "next/link";
-import { cookies } from "next/headers";
 import { chooseHero } from "@/lib/gallery/hero";
 import { loadWorks } from "@/lib/gallery/load";
-import { chooseLook, LOOK_COOKIE, parseLook, type Look } from "@/lib/gallery/looks";
 import { hang } from "@/lib/gallery/order";
 import { tombstoneLine } from "@/lib/gallery/tombstone";
 import type { Work } from "@/lib/gallery/types";
 import { Cell } from "./_gallery/Cell";
 import { IntentCaption } from "./_gallery/IntentCaption";
-import { LookMemory } from "./_gallery/LookMemory";
 import { Plate } from "./_gallery/Plate";
 
 /**
@@ -17,25 +14,17 @@ import { Plate } from "./_gallery/Plate";
  * sold. Read as the signed-in person, so row-level security decides what hangs; a non-member sees
  * the empty wall.
  *
- * Three looks for the first preview, the same works in the same order with the same words, hung
- * three ways: 1 Monograph (default), 2 Salon, 3 Flow. `?look=` switches; the visit remembers.
+ * The hanging is the Monograph, chosen by Michael on the first preview (2 Nov 2026) from three:
+ * the hero fills the viewport with nothing written on it until intent; the body of work three
+ * across with generous air; captions on intent only. The Flow — one work per screen — lives on in
+ * `_gallery/Flow.tsx`, unwired, as the seed of M3-01's ambient mode. The Salon was let go.
  */
 
 export const dynamic = "force-dynamic";
 
-export default async function Wall({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
-  const [works, query, jar] = await Promise.all([loadWorks(), searchParams, cookies()]);
-  const look = chooseLook(query.look, jar.get(LOOK_COOKIE)?.value);
-  const memory = <LookMemory look={parseLook(query.look)} />;
-
-  if (works.length === 0) {
-    return (
-      <>
-        {memory}
-        <EmptyWall />
-      </>
-    );
-  }
+export default async function Wall() {
+  const works = await loadWorks();
+  if (works.length === 0) return <EmptyWall />;
 
   const hero = chooseHero(works);
   const { held, sold } = hang(works);
@@ -43,22 +32,15 @@ export default async function Wall({ searchParams }: { searchParams: Promise<Rec
 
   return (
     <main className="min-h-screen">
-      {memory}
-      {look === 3 ? (
-        <Flow hero={hero} body={body} />
-      ) : (
-        <>
-          {hero && <Hero work={hero} look={look} />}
-          <Grid works={body} look={look} />
-        </>
-      )}
+      {hero && <Hero work={hero} />}
+      <Grid works={body} />
       {sold.length > 0 && (
         <section aria-label="Formerly in the collection" className="pb-24">
           <div className="mx-auto mb-4 flex max-w-7xl flex-col items-center gap-6 px-[6vw] pt-16">
             <span className="h-px w-full bg-ink-faint/50" aria-hidden="true" />
             <h2 className="font-sans text-[11px] uppercase tracking-[0.2em] text-ink-faint">Formerly in the collection</h2>
           </div>
-          {look === 3 ? <Flow hero={null} body={sold} /> : <Grid works={sold} look={look} />}
+          <Grid works={sold} />
         </section>
       )}
       <footer className="flex justify-end px-6 pb-6 pt-24">
@@ -69,19 +51,8 @@ export default async function Wall({ searchParams }: { searchParams: Promise<Rec
   );
 }
 
-function Hero({ work, look }: { work: Work; look: Look }) {
-  // Monograph: the whole viewport, nothing written on it until intent. Salon: four-fifths, with
-  // its tombstone beneath.
-  if (look === 2) {
-    return (
-      <section className="flex flex-col items-center px-6 pt-[6vh]">
-        <Link id={`w-${work.id}`} href={`/w/${work.id}`} className="flex h-[80vh] w-full items-center justify-center outline-none">
-          <Plate work={work} place="stage" priority />
-        </Link>
-        <p className="mt-6 text-center text-sm tracking-wide text-ink-muted">{tombstoneLine(work)}</p>
-      </section>
-    );
-  }
+function Hero({ work }: { work: Work }) {
+  // The whole viewport, nothing written on it until intent.
   // The line lives in a band of its own below the work (never over it): the stage is the viewport
   // less that band, so a portrait photograph that fills the height still leaves the band clear.
   return (
@@ -98,33 +69,12 @@ function Hero({ work, look }: { work: Work; look: Look }) {
   );
 }
 
-function Grid({ works, look }: { works: Work[]; look: Look }) {
-  const hanging =
-    look === 2
-      ? "grid grid-cols-2 gap-x-6 gap-y-12 px-6 py-16 sm:grid-cols-3 lg:grid-cols-4 lg:gap-x-8"
-      : "grid grid-cols-1 gap-x-[5vw] gap-y-24 px-[6vw] py-32 sm:grid-cols-2 lg:grid-cols-3";
+function Grid({ works }: { works: Work[] }) {
+  // Three across on a laptop, generous air; one column on a phone.
   return (
-    <div className={`mx-auto max-w-[1800px] ${hanging}`}>
+    <div className="mx-auto grid max-w-[1800px] grid-cols-1 gap-x-[5vw] gap-y-24 px-[6vw] py-32 sm:grid-cols-2 lg:grid-cols-3">
       {works.map((w) => (
         <Cell key={w.id} work={w} />
-      ))}
-    </div>
-  );
-}
-
-function Flow({ hero, body }: { hero: Work | null; body: Work[] }) {
-  const works = hero ? [hero, ...body] : body;
-  return (
-    <div>
-      {works.map((w, i) => (
-        <section key={w.id} className="group flex min-h-[100svh] flex-col items-center justify-center px-[4vw] py-[5vh]">
-          <Link id={`w-${w.id}`} href={`/w/${w.id}`} className="flex h-[84vh] w-full items-center justify-center outline-none">
-            <Plate work={w} place="stage" priority={i === 0} />
-          </Link>
-          <p className="mt-5 text-center text-sm tracking-wide text-ink-muted opacity-0 transition-opacity duration-500 group-hover:opacity-100 group-focus-within:opacity-100 group-active:opacity-100">
-            {tombstoneLine(w)}
-          </p>
-        </section>
       ))}
     </div>
   );
