@@ -219,6 +219,21 @@ describe.skipIf(!url)("M1-01 · the record arrives", () => {
     await expect(asUser(null, "anon", "select count(*) from public.items")).rejects.toThrow(/permission denied/);
   });
 
+  it("M1-03 · the image door: a non-member reads zero image rows, even asking for one by its id", async () => {
+    // The member was added in the test above. The door's own query, for a picture that exists.
+    const known = await db.query<{ id: string }>("select id from images order by id limit 1");
+    const id = known.rows[0].id;
+    const doorQuery = `select storage_bucket, storage_key, kind, content_type from images where id = '${id}'`;
+
+    expect(await asUser(USER_A, "authenticated", doorQuery)).toHaveLength(1);
+    expect(await asUser(USER_B, "authenticated", doorQuery)).toHaveLength(0);
+    expect(await asUser(USER_B, "authenticated", "select count(*)::int as n from images")).toEqual([{ n: 0 }]);
+    // and the wall's own read: no works, so no pictures, for the stranger
+    expect(await asUser(USER_B, "authenticated", "select i.id from items i join images m on m.item_id = i.id")).toHaveLength(0);
+    // the member, half signed in, gets nothing from the door either
+    expect(await asUser(USER_A, "authenticated", doorQuery, "aal1")).toHaveLength(0);
+  });
+
   it("signed-in users cannot write, truncate or alter — even with Supabase's default grants in place", async () => {
     await expect(asUser(USER_A, "authenticated", "update items set title = 'x'")).rejects.toThrow(/permission denied/);
     for (const table of ALL_TABLES) {

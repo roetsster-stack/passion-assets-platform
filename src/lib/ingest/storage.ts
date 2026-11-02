@@ -15,11 +15,20 @@ export type R2Jurisdiction = "eu" | "fedramp";
 /**
  * R2's S3 endpoint. A bucket created in a jurisdiction (EU for data residency) is only reachable
  * at that jurisdiction's endpoint; on the default one it answers "bucket does not exist".
+ * The one definition for the ingest (writes) and the image door (signed reads).
  */
 export function r2Endpoint(accountId: string, jurisdiction?: R2Jurisdiction): string {
   return jurisdiction
     ? `https://${accountId}.${jurisdiction}.r2.cloudflarestorage.com`
     : `https://${accountId}.r2.cloudflarestorage.com`;
+}
+
+/** R2_JURISDICTION as set in the environment: "eu" or "fedramp", unset otherwise; anything else is an error, never a silent default. */
+export function parseR2Jurisdiction(value: string | undefined): R2Jurisdiction | undefined {
+  const j = value?.trim();
+  if (!j) return undefined;
+  if (j === "eu" || j === "fedramp") return j;
+  throw new Error(`R2_JURISDICTION must be "eu", "fedramp" or unset, not "${j}".`);
 }
 
 export function createR2Store(env: {
