@@ -1,7 +1,9 @@
+import { headers } from "next/headers";
 import Link from "next/link";
 import { chooseHero } from "@/lib/gallery/hero";
 import { loadWorks } from "@/lib/gallery/load";
 import { hang } from "@/lib/gallery/order";
+import { isSaveData } from "@/lib/gallery/picture";
 import { tombstoneLine } from "@/lib/gallery/tombstone";
 import type { Work } from "@/lib/gallery/types";
 import { Cell } from "./_gallery/Cell";
@@ -23,7 +25,8 @@ import { Plate } from "./_gallery/Plate";
 export const dynamic = "force-dynamic";
 
 export default async function Wall() {
-  const works = await loadWorks();
+  const [works, h] = await Promise.all([loadWorks(), headers()]);
+  const saveData = isSaveData(h.get("save-data"));
   if (works.length === 0) return <EmptyWall />;
 
   const hero = chooseHero(works);
@@ -32,15 +35,15 @@ export default async function Wall() {
 
   return (
     <main className="min-h-screen">
-      {hero && <Hero work={hero} />}
-      <Grid works={body} />
+      {hero && <Hero work={hero} saveData={saveData} />}
+      <Grid works={body} saveData={saveData} />
       {sold.length > 0 && (
         <section aria-label="Formerly in the collection" className="pb-24">
           <div className="mx-auto mb-4 flex max-w-7xl flex-col items-center gap-6 px-[6vw] pt-16">
             <span className="h-px w-full bg-ink-faint/50" aria-hidden="true" />
             <h2 className="font-sans text-[11px] uppercase tracking-[0.2em] text-ink-faint">Formerly in the collection</h2>
           </div>
-          <Grid works={sold} />
+          <Grid works={sold} saveData={saveData} />
         </section>
       )}
       <footer className="flex justify-end px-6 pb-6 pt-24">
@@ -51,14 +54,14 @@ export default async function Wall() {
   );
 }
 
-function Hero({ work }: { work: Work }) {
+function Hero({ work, saveData }: { work: Work; saveData: boolean }) {
   // The whole viewport, nothing written on it until intent.
   // The line lives in a band of its own below the work (never over it): the stage is the viewport
   // less that band, so a portrait photograph that fills the height still leaves the band clear.
   return (
     <section className="relative flex h-[100svh] w-full flex-col">
       <Link id={`w-${work.id}`} href={`/w/${work.id}`} className="flex min-h-0 w-full flex-1 items-center justify-center outline-none">
-        <Plate work={work} place="stage" priority />
+        <Plate work={work} place="stage" priority saveData={saveData} />
       </Link>
       <div className="flex h-16 shrink-0 items-center">
         <div className="w-full">
@@ -69,12 +72,12 @@ function Hero({ work }: { work: Work }) {
   );
 }
 
-function Grid({ works }: { works: Work[] }) {
+function Grid({ works, saveData }: { works: Work[]; saveData: boolean }) {
   // Three across on a laptop, generous air; one column on a phone.
   return (
     <div className="mx-auto grid max-w-[1800px] grid-cols-1 gap-x-[5vw] gap-y-24 px-[6vw] py-32 sm:grid-cols-2 lg:grid-cols-3">
       {works.map((w) => (
-        <Cell key={w.id} work={w} />
+        <Cell key={w.id} work={w} saveData={saveData} />
       ))}
     </div>
   );

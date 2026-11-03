@@ -135,3 +135,102 @@ master row is never returned by the picture query a page uses.
 phone's network tab shows no picture wider than its screen · the Kentridge opens into zoom and the fibre
 shows; a work without a master shows no glass · the ingest report says how many works have a master · the
 masters bucket answers nothing to any address · a second `npm run masters` reports every count unchanged.
+
+---
+
+## BUILT — M1-02a (the ladder), 3 Nov 2026
+
+**PR note — for Michael.**
+
+**What changed.** Every picture on the wall and the single work now arrives in the size the screen needs.
+Each photograph is cut, once, on Workshop, into a ladder of sizes: 480, 1,080, 2,160 and 4,320 px on its
+long side, never larger than the photograph itself, in two formats (AVIF, about half the weight, and JPEG
+beside it). The page offers the browser every size and says how wide the picture will hang, and the browser
+takes the smallest file that is sharp on its screen: a phone gets a phone's file, the television the 4K one.
+When a phone says it is saving data, nothing above 1,080 is offered. Each work also carries a tiny stand-in
+(24 px, about 600 bytes) written into the page itself, so the work appears in its colours and shape the instant
+the page opens and the photograph settles over it, with no blank box and no spinner. The first picture on the
+wall loads first; the rest load just before you scroll to them.
+
+Behind the scenes there is a new command, `npm run masters`, for the photographer's and the galleries' files:
+- `--prepare` keeps one folder per work in `~/curator/masters/` (the 107 folders already there are kept as
+  they are).
+- `--from <folder>` copies files from somewhere else (the Dropbox folder, a download) into the right work
+  folders by the artist's surname and the title in the filename, and lists every file it cannot place.
+  It copies and never moves, so nothing leaves Dropbox.
+- `--report` says what is in the folders and what is in the archive.
+- The plain run takes everything in the folders into the archive. Each file is stored once, by its
+  fingerprint (the same file dropped twice is one master). The work's picture moves to the master, and the
+  ladder is cut from it. The Airtable photograph keeps its place in the register but is no longer the
+  picture.
+
+`npm run ingest` cuts the ladder for the Airtable photographs too. Both commands say how many works have a
+master, how many still show the Airtable snapshot, and how many have no picture yet.
+
+**Why.** "More high resolution images, with some urgency", and the question of how the pictures load once they
+are heavier or the connection is slow. Until now every screen got the same file. Now the wall is quick on a
+phone and sharp on the television, and it is ready for the 6 November shoot. Zoom is the second half
+(M1-02b).
+
+**What keeps the masters safe.**
+- The image door now serves renditions only. It never serves the master, and it no longer serves the
+  Airtable snapshot either.
+- The database itself now refuses to show a master's record to anyone signed in, member or not. The page's
+  picture query returns only each work's size, its stand-in and its renditions: no storage address, and
+  never a master's id.
+- A test against a real database proves this. A master becomes a work's picture, and still no read that a
+  signed-in member can make returns it.
+- Renditions carry no metadata at all: no camera details, no GPS position, nothing about where a photograph
+  was taken.
+
+**Choices made in the build** (say if any is wrong):
+- **Folder numbers stay at three digits** (`001-Adams-…`). That is how the 107 folders made earlier today were
+  named, and renaming them would break the "the number never changes" promise. New works get the next free
+  number.
+- **Which master hangs.** When a work has several master files, the plain capture hangs. Files named
+  "detail", "raking", "in situ", "verso" and so on come after it. Every file is stored; the ladder is cut for
+  the one that hangs. Choosing among views on screen is M3.
+- **Files it cannot take** are listed, not guessed at: a zip ("unpack it into the folder"), a RAW or PSD file,
+  anything unreadable. There is one zip today, in `104-WaLehulere-Burnt-sunflowers`.
+- **The picture query is a database view**, `gallery_pictures`. It runs with the database's own rights, so it
+  can read a master's size and stand-in without handing out the master's record. It checks membership and the
+  second sign-in step itself, with the same rule the rest of the register uses. Supabase's adviser will flag it
+  as a "security definer view"; that is by design, and the database test covers it.
+- **A retina laptop may take the 4,320 file** for a picture that fills the screen. Such a screen genuinely
+  needs about 3,000 pixels across, and the next rung down is 2,160, which would look soft. A phone never does.
+
+**Tests.** The ladder rule (no upscaling, the source's own size as the top rung, the 1,071 px case). What the
+encoder writes (sRGB, progressive JPEG, AVIF, no EXIF/GPS/profile, a 24 px stand-in). How the page asks for a
+picture (srcset by true width, `sizes`, Save-Data capping at 1,080). The door's decision (renditions only). Which
+file hangs. Folder names, file matching and running `--prepare` and `--from` twice, against fixtures. Against
+Postgres: the ingest cuts the ladder and a second run cuts nothing; a file dropped twice under two names is one
+master; the master becomes the picture; the snapshot keeps its row; the picture query never returns the master;
+a stranger, a half-signed-in member and the anonymous role see no pictures. Lint, typecheck, 97 tests and the
+build pass.
+
+**Before the preview shows pictures — one-time, in this order.**
+1. **The migration** (`20261103150000_image_ladder.sql`) applied to the database
+   (`npx supabase db push --db-url "$DATABASE_URL"` on Workshop). The site on `main` keeps working after it.
+2. **`npm run ingest`** on Workshop, to cut the ladder for the 131 Airtable photographs into
+   `curator-renditions`.
+3. **The key.** The app's read-only R2 key must be able to read `curator-renditions`. The plan said to do this
+   after merging, but this branch's door reads only from that bucket, so the preview needs it first. Make a new
+   read-only token on `curator-renditions` **only** and put its pair in Vercel (Preview now; Production when
+   this merges). When this merges, revoke the old token. After that, no key the app holds can reach a master.
+
+**How to verify on the preview.**
+1. Open the wall on the laptop. Every work should show its colours at once, and the photographs should settle
+   over them. Nothing should pop from blank.
+2. On the phone, scroll the wall. It should be quick.
+3. To check the sizes: in Safari or Chrome, open the developer tools → Network → Img and reload. On the phone
+   (or the tools' phone view) no picture should be wider than about 1,080 px. On the laptop, the body of work
+   should come at 1,080 and the hero larger.
+4. Open a work, then use ← and → to walk. Each picture should arrive in its colours first, as on the wall.
+5. Then, on Workshop, after the shoot: put the files into the folders (or use `npm run masters -- --from
+   "<the Dropbox folder>"`), run `npm run masters`, and reload the wall. Those works now hang their master's
+   ladder. Run it again and every count should be "unchanged".
+
+**Not done here.** Tiles and zoom (M1-02b). The Dropbox folder named in the brief
+(`~/Library/CloudStorage/Dropbox/Art/Michael Roets - Art Images`) is not on this Mac, so `--from` has only been
+tested on fixtures. Two loose files sit in `~/curator/masters/Michael Roets - Art Images/`; `--report` lists them
+and `--from` can place them.

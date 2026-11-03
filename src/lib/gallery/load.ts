@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-import { toWork, WORK_COLUMNS, type WorkRow } from "./read";
+import { PICTURE_COLUMNS, toWork, WORK_COLUMNS, type PictureRow, type WorkRow } from "./read";
 import type { Work } from "./types";
 
 /**
@@ -11,9 +11,14 @@ import type { Work } from "./types";
 export async function loadWorks(): Promise<Work[]> {
   try {
     const supabase = await createClient();
-    const { data, error } = await supabase.from("items").select(WORK_COLUMNS).is("source_removed_at", null);
-    if (error || !data) return [];
-    return (data as unknown as WorkRow[]).map(toWork);
+    const [works, pictures] = await Promise.all([
+      supabase.from("items").select(WORK_COLUMNS).is("source_removed_at", null),
+      supabase.from("gallery_pictures").select(PICTURE_COLUMNS),
+    ]);
+    if (works.error || !works.data) return [];
+    // Without pictures the wall still hangs — every work as its label.
+    const byItem = new Map(((pictures.data ?? []) as unknown as PictureRow[]).map((p) => [p.item_id, p]));
+    return (works.data as unknown as WorkRow[]).map((w) => toWork(w, byItem.get(w.id) ?? null));
   } catch {
     return [];
   }

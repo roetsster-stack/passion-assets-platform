@@ -1,18 +1,19 @@
 /**
  * `npm run ingest` — bring the collection across from Airtable. Run on Workshop.
  *
- *   npm run ingest                      full run: records, ownership, provenance, pictures, documents
+ *   npm run ingest                      full run: records, ownership, provenance, pictures, documents,
+ *                                       and the rendition ladder for every Airtable photograph
  *   npm run ingest -- --skip-attachments records only (fast; pictures and documents on a later run)
  *   npm run ingest -- --report          print what is in the register, change nothing
  *
  * Needs, in ~/curator/.env: DATABASE_URL, AIRTABLE_PAT, AIRTABLE_BASE_ID, R2_ACCOUNT_ID,
- * R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET_MASTERS. Optional: CURATOR_COLLECTION_NAME,
+ * R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET_MASTERS, R2_BUCKET_RENDITIONS. Optional: CURATOR_COLLECTION_NAME,
  * R2_JURISDICTION ("eu" when the buckets were created in the EU jurisdiction).
  */
-import { readFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { Client } from "pg";
+import { sslFor } from "../src/lib/db";
 import { loadEnvFile, required } from "../src/lib/env";
+import { sharpRenderer } from "../src/lib/images/render";
 import { createAirtableSource } from "../src/lib/ingest/airtable";
 import { loadRules } from "../src/lib/ingest/rules";
 import { runIngest, type Counts, type IngestReport } from "../src/lib/ingest/run";
@@ -20,25 +21,6 @@ import { createR2Store, parseR2Jurisdiction } from "../src/lib/ingest/storage";
 
 const args = new Set(process.argv.slice(2));
 const envFile = loadEnvFile();
-
-/**
- * TLS to the database. Supabase's certificates chain to Supabase's own CA, so the first real run
- * needs that file: Supabase → Connect → "Download certificate" → save beside the env file and set
- * DATABASE_SSL_CA. There is no switch to skip verification: a register that knows where the works
- * are does not travel over a connection nobody has checked. DATABASE_SSL=disable is honoured only
- * for a local database.
- */
-function sslFor(url: string) {
-  const hosted = /supabase\.(com|co)/.test(url) || /sslmode=require/.test(url);
-  const local = /@(localhost|127\.0\.0\.1)[:/]/.test(url);
-  if (process.env.DATABASE_SSL === "disable" && local) return undefined;
-  if (!hosted && local) return undefined;
-  if (process.env.DATABASE_SSL_CA) {
-    const caPath = process.env.DATABASE_SSL_CA.replace(/^~(?=\/)/, homedir());
-    return { ca: readFileSync(caPath, "utf8"), rejectUnauthorized: true };
-  }
-  return { rejectUnauthorized: true };
-}
 
 function line(label: string, c: Counts) {
   return `${label.padEnd(12)} created ${String(c.created).padStart(4)}  updated ${String(c.updated).padStart(4)}  unchanged ${String(c.unchanged).padStart(4)}  removed ${String(c.removed).padStart(4)}`;
@@ -61,6 +43,19 @@ function printReport(r: IngestReport) {
     console.log(`attachment errors: ${r.attachmentErrors.length} (re-run to retry)`);
     for (const e of r.attachmentErrors.slice(0, 10)) console.log(`  ${e.itemRecordId} ${e.attachmentId}: ${e.error}`);
   }
+  if (r.renditions) {
+    console.log(`${"renditions".padEnd(12)} created ${String(r.renditions.created).padStart(4)}  unchanged ${String(r.renditions.unchanged).padStart(4)}`);
+  }
+  if (r.renditionErrors.length) {
+    console.log(`rendition errors: ${r.renditionErrors.length} (re-run to retry)`);
+    for (const e of r.renditionErrors.slice(0, 10)) console.log(`  image ${e.imageId}: ${e.error}`);
+  }
+  if (r.picturesMoved) console.log(`pictures: ${r.picturesMoved} work(s) now hang a better source`);
+  if (r.pictures) {
+    console.log(
+      `works: ${r.pictures.withMaster} with a master, ${r.pictures.onSnapshot} on the Airtable snapshot, ${r.pictures.withoutPicture} with no picture yet`,
+    );
+  }
 }
 
 async function report(db: Client, collectionName: string) {
@@ -76,7 +71,9 @@ async function report(db: Client, collectionName: string) {
   console.log(`  sold         ${await q("select count(*) n from items where collection_id = $1 and status = 'sold'")}`);
   console.log(`  artists      ${await q("select count(*) n from artists where collection_id = $1")}`);
   console.log(`  provenance   ${await q("select count(*) n from provenance_events where collection_id = $1")}`);
-  console.log(`  pictures     ${await q("select count(*) n from images where collection_id = $1")}`);
+  console.log(`  pictures     ${await q("select count(*) n from images where collection_id = $1 and kind = 'lowres_airtable'")} Airtable photographs`);
+  console.log(`  masters      ${await q("select count(*) n from images where collection_id = $1 and kind = 'master'")}`);
+  console.log(`  renditions   ${await q("select count(*) n from images where collection_id = $1 and kind = 'rendition'")}`);
   console.log(`  documents    ${await q("select count(*) n from documents where collection_id = $1")}`);
   console.log(`  flagged      ${await q("select count(*) n from items where collection_id = $1 and admin_notes is not null")}`);
   console.log(`  withdrawn    ${await q("select count(*) n from items where collection_id = $1 and source_removed_at is not null")}`);
@@ -104,7 +101,7 @@ async function main() {
     const source = createAirtableSource({ baseId: required("AIRTABLE_BASE_ID"), token: required("AIRTABLE_PAT") });
     const skipAttachments = args.has("--skip-attachments");
     const store = skipAttachments
-      ? { exists: async () => false, putIfAbsent: async () => ({ written: false }) }
+      ? { exists: async () => false, putIfAbsent: async () => ({ written: false }), get: async () => Buffer.alloc(0) }
       : createR2Store({
           accountId: required("R2_ACCOUNT_ID"),
           accessKeyId: required("R2_ACCESS_KEY_ID"),
@@ -119,6 +116,7 @@ async function main() {
       collectionName,
       mastersBucket: process.env.R2_BUCKET_MASTERS ?? "curator-masters",
       skipAttachments,
+      ladder: skipAttachments ? undefined : { bucket: process.env.R2_BUCKET_RENDITIONS ?? "curator-renditions", renderer: sharpRenderer },
       log: (m) => console.log(m),
     });
     printReport(result);

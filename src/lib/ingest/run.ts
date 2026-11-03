@@ -7,6 +7,8 @@
  *   B. one transaction: artists, items, ownership, provenance
  *   C. attachments, one at a time, each committed as it lands — so an interrupted run resumes
  *      where it stopped and never leaves a half-written picture.
+ *   D. the ladder (M1-02a): each work's picture moves to its best source, and every Airtable
+ *      photograph has its renditions cut — the same code `npm run masters` uses.
  */
 import { createHash } from "node:crypto";
 import type { Client } from "pg";
@@ -15,6 +17,8 @@ import type { AirtableAttachment, AirtableRecord, AirtableSource } from "./airta
 import { COLLECTION_TABLE, PROVENANCE_TABLE } from "./fields";
 import { artistFromRecord, mapItem, mapProvenance, type ArtistRow, type IngestRules, type ItemRow, type ProvenanceRow } from "./map";
 import type { ObjectStore } from "./storage";
+import { cutLadders, pictureTally, settleHeroes, snapshotSources, type LadderCounts, type LadderError, type PictureTally } from "../images/pictures";
+import type { Renderer } from "../images/render";
 
 export type Counts = { created: number; updated: number; unchanged: number; removed: number };
 const zero = (): Counts => ({ created: 0, updated: 0, unchanged: 0, removed: 0 });
@@ -35,6 +39,13 @@ export type IngestReport = {
   /** Provenance records with no label or no linked work — nothing to attach them to. */
   provenanceDropped: number;
   attachmentErrors: { itemRecordId: string; attachmentId: string; error: string }[];
+  /** Rendition files cut for the Airtable photographs; null when the ladder was not run. */
+  renditions: LadderCounts | null;
+  renditionErrors: LadderError[];
+  /** Works whose picture moved to a better source on this run. */
+  picturesMoved: number;
+  /** Works with a master, on the Airtable snapshot, or with no picture yet. */
+  pictures: PictureTally | null;
   durationMs: number;
 };
 
@@ -48,6 +59,8 @@ export type IngestDeps = {
   mastersBucket: string;
   actor?: string;
   skipAttachments?: boolean;
+  /** Where the renditions go and what cuts them. Without it the ladder is not cut (the pictures still settle). */
+  ladder?: { bucket: string; renderer: Renderer };
   log?: (msg: string) => void;
 };
 
@@ -173,6 +186,10 @@ export async function runIngest(deps: IngestDeps): Promise<IngestReport> {
     ownerDefaulted: 0,
     provenanceDropped: 0,
     attachmentErrors: [],
+    renditions: null,
+    renditionErrors: [],
+    picturesMoved: 0,
+    pictures: null,
     durationMs: 0,
   };
 
@@ -227,6 +244,17 @@ export async function runIngest(deps: IngestDeps): Promise<IngestReport> {
     if (!deps.skipAttachments) {
       const itemIds = await loadItemIds(db, collectionId);
       await syncAttachments(db, store, fetchImpl, deps.mastersBucket, collectionId, items, provenance, itemIds, report, log);
+
+      // -- phase D: the ladder ------------------------------------------------------------------
+      report.picturesMoved = await settleHeroes(db, collectionId);
+      if (deps.ladder) {
+        log("Cutting the ladder…");
+        const sources = await snapshotSources(db, collectionId);
+        const cut = await cutLadders(db, store, deps.ladder.renderer, deps.ladder.bucket, sources, log);
+        report.renditions = cut.counts;
+        report.renditionErrors = cut.errors;
+      }
+      report.pictures = await pictureTally(db, collectionId);
     }
 
     report.durationMs = Date.now() - started;
@@ -258,6 +286,10 @@ function summarise(r: IngestReport) {
     ownerDefaulted: r.ownerDefaulted,
     provenanceDropped: r.provenanceDropped,
     attachmentErrors: r.attachmentErrors.length,
+    renditions: r.renditions,
+    renditionErrors: r.renditionErrors.length,
+    picturesMoved: r.picturesMoved,
+    pictures: r.pictures,
     durationMs: r.durationMs,
   };
 }
@@ -588,9 +620,10 @@ async function syncAttachments(
       if (p.target === "images") {
         await db.query(
           `insert into images (collection_id, item_id, kind, storage_bucket, storage_key, content_type, bytes, width, height, sha256, source, source_ref, original_filename, is_hero, sort_order)
-           values ($1,$2,'lowres_airtable',$3,$4,$5,$6,$7,$8,$9,'airtable',$10,$11,$12,$13)
+           values ($1,$2,'lowres_airtable',$3,$4,$5,$6,$7,$8,$9,'airtable',$10,$11,false,$12)
            on conflict (storage_bucket, storage_key) do nothing`,
-          [collectionId, p.itemId, bucket, storageKey, contentType, body.length, p.attachment.width ?? null, p.attachment.height ?? null, sha, p.attachment.id, p.attachment.filename, p.sortOrder === 0, p.sortOrder],
+          // Not the picture yet: phase D gives each work exactly one, the best source it has.
+          [collectionId, p.itemId, bucket, storageKey, contentType, body.length, p.attachment.width ?? null, p.attachment.height ?? null, sha, p.attachment.id, p.attachment.filename, p.sortOrder],
         );
       } else {
         await db.query(

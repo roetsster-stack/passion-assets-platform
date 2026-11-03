@@ -1,7 +1,9 @@
+import { headers } from "next/headers";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { loadProvenance, loadWorks } from "@/lib/gallery/load";
 import { neighbours } from "@/lib/gallery/order";
+import { isSaveData } from "@/lib/gallery/picture";
 import { acquisitionLine, tombstoneDetail, yearOf } from "@/lib/gallery/tombstone";
 import { isImageId } from "@/lib/images/door";
 import { Plate } from "../../_gallery/Plate";
@@ -20,7 +22,7 @@ export default async function SingleWork({ params }: { params: Promise<{ id: str
   const { id } = await params;
   if (!isImageId(id)) notFound();
 
-  const [works, provenance] = await Promise.all([loadWorks(), loadProvenance(id)]);
+  const [works, provenance, h] = await Promise.all([loadWorks(), loadProvenance(id), headers()]);
   const work = works.find((w) => w.id === id);
   if (!work) notFound();
 
@@ -42,7 +44,7 @@ export default async function SingleWork({ params }: { params: Promise<{ id: str
 
       <figure className="flex flex-col items-center">
         <div className="flex h-[88svh] w-full items-center justify-center px-[4vw] pt-[5vh]">
-          <Plate work={work} place="stage" priority />
+          <Plate work={work} place="stage" priority saveData={isSaveData(h.get("save-data"))} />
         </div>
         <figcaption className="mt-10 flex w-full max-w-xl flex-col items-center px-6 text-center">
           {work.artist && <p className="text-lg text-ink">{work.artist}</p>}

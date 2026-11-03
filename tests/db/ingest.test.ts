@@ -2,14 +2,18 @@
  * The ingest and the row-level security, against a real Postgres. Runs when TEST_DATABASE_URL is
  * set (CI starts one); skipped otherwise, so `npm test` still passes on a laptop with no database.
  */
-import { readFileSync, readdirSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { Client } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createStaticSource } from "@/lib/ingest/airtable";
 import { COLLECTION_TABLE, F } from "@/lib/ingest/fields";
 import { runIngest, type IngestDeps } from "@/lib/ingest/run";
-import { createMemoryStore } from "@/lib/ingest/storage";
+import { createMemoryStore, type ObjectStore } from "@/lib/ingest/storage";
+import { ladderFor } from "@/lib/images/ladder";
+import { loadMasterWorks, prepareFolders, runMasters } from "@/lib/images/masters-run";
+import type { Renderer } from "@/lib/images/render";
 import { RULES, collectionRecords, fakeFetch, tables } from "../ingest/fixture";
 
 const url = process.env.TEST_DATABASE_URL;
@@ -248,5 +252,103 @@ describe.skipIf(!url)("M1-01 · the record arrives", () => {
     } finally {
       await db.query("drop table public.later_table");
     }
+  });
+  it("M1-02a · the ladder: every picture's renditions cut once; a master becomes the picture and is never returned to a page", async () => {
+    const cid = (await db.query<{ id: string }>("select id from collections where name = 'Test Collection'")).rows[0].id;
+    // No encoding here (the encoder has its own tests): a renderer that knows a master by its first
+    // bytes, and an object store that can read the Airtable snapshots stored by earlier runs.
+    const renderer: Renderer = {
+      async probe(input) {
+        return input.subarray(0, 6).toString() === "MASTER" ? { width: 5375, height: 4000 } : { width: 800, height: 600 };
+      },
+      async cut(input) {
+        const size = await this.probe(input);
+        const long = Math.max(size.width, size.height);
+        return {
+          ...size,
+          placeholder: "data:image/jpeg;base64,AAAA",
+          renditions: ladderFor(long).flatMap((l) =>
+            (["jpeg", "avif"] as const).map((format) => ({ longSide: l, format, body: Buffer.from(`${l}-${format}`), width: l, height: Math.round((l * size.height) / size.width) })),
+          ),
+        };
+      },
+    };
+    const mem = createMemoryStore();
+    const store: ObjectStore = { ...mem, get: async (b, k) => mem.objects.get(`${b}/${k}`)?.body ?? Buffer.from(`snapshot ${k}`) };
+    const ladder = { bucket: "test-renditions", renderer };
+
+    // The ingest cuts the ladder for every Airtable photograph: 4 photographs × (480, 800) × 2 formats.
+    const r1 = await runIngest(deps({ store, ladder }));
+    expect(r1.renditions).toEqual({ created: 16, unchanged: 0 });
+    expect(r1.renditionErrors).toEqual([]);
+    expect(r1.pictures).toEqual({ withMaster: 0, onSnapshot: 2, withoutPicture: 1 });
+    const r2 = await runIngest(deps({ store, ladder }));
+    expect(r2.renditions).toEqual({ created: 0, unchanged: 16 });
+    expect(r2.picturesMoved).toBe(0);
+
+    // The masters: folders prepared from the register; a file dropped twice under two names, and a zip.
+    const dir = mkdtempSync(path.join(tmpdir(), "masters-db-"));
+    try {
+      const root = path.join(dir, "masters");
+      const prepared = prepareFolders(root, await loadMasterWorks(db, cid));
+      expect(prepared.created).toHaveLength(3);
+      const folder = prepared.folders.find((f) => /Study-in-Grey/.test(f))!;
+      writeFileSync(path.join(root, folder, "Example_Study-in-Grey_2019.tif"), "MASTER bytes of the photographer's file");
+      writeFileSync(path.join(root, folder, "Example_Study-in-Grey_2019 copy.tif"), "MASTER bytes of the photographer's file");
+      writeFileSync(path.join(root, folder, "from-the-gallery.zip"), "PK");
+      const run = () => runMasters({ db, store, renderer, root, collectionId: cid, mastersBucket: "test-masters", renditionsBucket: "test-renditions" });
+
+      const m1 = await run();
+      expect(m1.masters).toEqual({ created: 1, unchanged: 1 }); // one master, however many names it has
+      expect(m1.skipped.map((s) => s.file)).toEqual([path.join(folder, "from-the-gallery.zip")]);
+      expect(m1.picturesMoved).toBe(1);
+      expect(m1.renditions).toEqual({ created: 8, unchanged: 0 }); // 480, 1080, 2160, 4320 × 2
+      expect(m1.pictures).toEqual({ withMaster: 1, onSnapshot: 1, withoutPicture: 1 });
+
+      const m2 = await run();
+      expect(m2.masters).toEqual({ created: 0, unchanged: 2 });
+      expect(m2.renditions).toEqual({ created: 0, unchanged: 8 });
+      expect(m2.picturesMoved).toBe(0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+
+    const master = (await db.query<{ id: string; item_id: string; storage_key: string; is_hero: boolean }>("select id, item_id, storage_key, is_hero from images where kind = 'master'")).rows;
+    expect(master).toHaveLength(1);
+    expect(master[0].is_hero).toBe(true);
+    expect(master[0].storage_key).toMatch(/^collections\/[0-9a-f-]+\/items\/[0-9a-f-]+\/masters\/[0-9a-f]{64}\.tif$/);
+    // The Airtable snapshot keeps its row, no longer the picture; one picture per work.
+    const snap = await db.query<{ is_hero: boolean }>("select is_hero from images where item_id = $1 and kind = 'lowres_airtable'", [master[0].item_id]);
+    expect(snap.rows.map((r) => r.is_hero)).toEqual([false]);
+    const heroes = await db.query<{ n: number }>("select count(*)::int n from images where is_hero group by item_id having count(*) > 1");
+    expect(heroes.rows).toEqual([]);
+
+    // The picture query a page uses, as the member: the work's picture is the master's ladder —
+    // yet no row, no column and no value it returns is the master or points at it.
+    const pictures = await asUser(USER_A, "authenticated", "select item_id, width, height, placeholder, renditions from gallery_pictures");
+    expect(pictures).toHaveLength(2);
+    const fromMaster = pictures.find((p) => p.item_id === master[0].item_id);
+    expect(fromMaster).toMatchObject({ width: 5375, height: 4000, placeholder: "data:image/jpeg;base64,AAAA" });
+    expect(fromMaster.renditions).toHaveLength(8);
+    const text = JSON.stringify(pictures);
+    expect(text).not.toContain(master[0].id);
+    expect(text).not.toContain("masters/");
+    expect(text).not.toContain("test-masters");
+    for (const r of fromMaster.renditions) {
+      const row = await db.query<{ kind: string; derived_from_image_id: string }>("select kind, derived_from_image_id from images where id = $1", [r.id]);
+      expect(row.rows[0]).toEqual({ kind: "rendition", derived_from_image_id: master[0].id });
+    }
+
+    // Nor any other read a signed-in member can make: the table, the door's query, a join.
+    expect(await asUser(USER_A, "authenticated", "select count(*)::int n from images where kind = 'master'")).toEqual([{ n: 0 }]);
+    expect(await asUser(USER_A, "authenticated", `select storage_key from images where id = '${master[0].id}'`)).toHaveLength(0);
+    expect(await asUser(USER_A, "authenticated", "select m.id from items i join images m on m.item_id = i.id where m.kind = 'master'")).toHaveLength(0);
+    // and the renditions themselves are what the door is asked for
+    expect(await asUser(USER_A, "authenticated", `select kind from images where id = '${fromMaster.renditions[0].id}'`)).toEqual([{ kind: "rendition" }]);
+
+    // A stranger, a half-signed-in member and the anonymous role see no pictures at all.
+    expect(await asUser(USER_B, "authenticated", "select * from gallery_pictures")).toHaveLength(0);
+    expect(await asUser(USER_A, "authenticated", "select * from gallery_pictures", "aal1")).toHaveLength(0);
+    await expect(asUser(null, "anon", "select * from public.gallery_pictures")).rejects.toThrow(/permission denied/);
   });
 });

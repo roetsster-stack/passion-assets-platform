@@ -5,8 +5,12 @@
  * archival master) — all are 404, and indistinguishable, so the door says nothing about what exists.
  */
 
-/** The kinds the door may serve. Masters are never served (CLAUDE.md); tiles arrive with M1-02. */
-export const SERVABLE_KINDS = ["lowres_airtable", "rendition"] as const;
+/**
+ * The kinds the door may serve: renditions only, from M1-02a. Every picture a page shows is a rung
+ * of the ladder; the sources it was cut from — the master, the Airtable snapshot — are never
+ * served. Tiles arrive with M1-02b, through a door of their own.
+ */
+export const SERVABLE_KINDS = ["rendition"] as const;
 
 export const SIGNED_URL_SECONDS = 300;
 

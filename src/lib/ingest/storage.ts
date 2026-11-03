@@ -1,13 +1,15 @@
 /**
- * Object storage for masters and documents. Cloudflare R2 through the S3 API; an in-memory store
+ * Object storage for masters, renditions and documents. Cloudflare R2 through the S3 API; an in-memory store
  * for tests. Buckets are private: nothing in them is ever addressed by a public URL.
  */
-import { HeadObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { GetObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 
 export interface ObjectStore {
   exists(bucket: string, key: string): Promise<boolean>;
   /** Writes the object unless it is already there. Masters are write-once. */
   putIfAbsent(bucket: string, key: string, body: Buffer, contentType?: string): Promise<{ written: boolean }>;
+  /** The object's bytes — for cutting the ladder from a source already stored. */
+  get(bucket: string, key: string): Promise<Buffer>;
 }
 
 export type R2Jurisdiction = "eu" | "fedramp";
@@ -63,6 +65,11 @@ export function createR2Store(env: {
       );
       return { written: true };
     },
+    async get(bucket, key) {
+      const res = await client.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
+      if (!res.Body) throw new Error(`empty object ${bucket}/${key}`);
+      return Buffer.from(await res.Body.transformToByteArray());
+    },
   };
 }
 
@@ -78,6 +85,11 @@ export function createMemoryStore(): ObjectStore & { objects: Map<string, { body
       if (objects.has(k(bucket, key))) return { written: false };
       objects.set(k(bucket, key), { body, contentType });
       return { written: true };
+    },
+    async get(bucket, key) {
+      const o = objects.get(k(bucket, key));
+      if (!o) throw new Error(`no object ${bucket}/${key}`);
+      return o.body;
     },
   };
 }

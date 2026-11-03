@@ -1,24 +1,25 @@
 /**
  * M1-03 · the image door's decision: a signed five-minute address, or 404 — never anything that
- * tells a stranger what exists.
+ * tells a stranger what exists. M1-02a: renditions only.
  */
 import { describe, expect, it } from "vitest";
 import { parseR2Jurisdiction, r2Endpoint } from "@/lib/ingest/storage";
 import { decideImage, isImageId, SIGNED_URL_SECONDS, type ImageDoorRow } from "@/lib/images/door";
 import { signImage } from "@/lib/images/sign";
 
-const row: ImageDoorRow = { storage_bucket: "test-masters", storage_key: "collections/c/items/i/source/att1.jpg", kind: "lowres_airtable", content_type: "image/jpeg" };
+const row: ImageDoorRow = { storage_bucket: "test-renditions", storage_key: "collections/c/items/i/renditions/s/1080.jpg", kind: "rendition", content_type: "image/jpeg" };
 
 describe("the image door", () => {
   it("signs for a signed-in person whose row-level security returns the row", () => {
-    expect(decideImage({ signedIn: true, row })).toEqual({ kind: "sign", bucket: "test-masters", key: row.storage_key, contentType: "image/jpeg" });
+    expect(decideImage({ signedIn: true, row })).toEqual({ kind: "sign", bucket: "test-renditions", key: row.storage_key, contentType: "image/jpeg" });
   });
 
-  it("answers 404 with no session, with no row (a non-member), and for a master", () => {
+  it("answers 404 with no session, with no row (a non-member), and for anything not a rendition — a master above all", () => {
     expect(decideImage({ signedIn: false, row })).toEqual({ kind: "not-found" });
     expect(decideImage({ signedIn: true, row: null })).toEqual({ kind: "not-found" });
     expect(decideImage({ signedIn: true, row: { ...row, kind: "master" } })).toEqual({ kind: "not-found" });
     expect(decideImage({ signedIn: true, row: { ...row, kind: "tile_set" } })).toEqual({ kind: "not-found" });
+    expect(decideImage({ signedIn: true, row: { ...row, kind: "lowres_airtable" } })).toEqual({ kind: "not-found" });
   });
 
   it("the address lives five minutes", () => {
@@ -45,9 +46,9 @@ describe("the image door", () => {
     process.env.R2_ACCESS_KEY_ID = "AKIATESTKEYID";
     process.env.R2_SECRET_ACCESS_KEY = "test-secret-never-in-an-address";
     process.env.R2_JURISDICTION = "eu";
-    const url = new URL(await signImage("test-masters", row.storage_key, "image/jpeg"));
+    const url = new URL(await signImage("test-renditions", row.storage_key, "image/jpeg"));
     expect(url.protocol).toBe("https:");
-    expect(url.host).toBe("test-masters.acct.eu.r2.cloudflarestorage.com");
+    expect(url.host).toBe("test-renditions.acct.eu.r2.cloudflarestorage.com");
     expect(url.pathname).toBe(`/${row.storage_key}`);
     expect(url.searchParams.get("X-Amz-Expires")).toBe(String(SIGNED_URL_SECONDS));
     expect(url.searchParams.get("X-Amz-Algorithm")).toBe("AWS4-HMAC-SHA256");
