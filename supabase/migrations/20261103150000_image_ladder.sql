@@ -25,6 +25,14 @@ create index images_derived_from_idx on public.images (derived_from_image_id);
 create unique index images_one_rung on public.images (derived_from_image_id, long_side, format) where kind = 'rendition';
 
 -- One picture per work. The ingest and the masters command move it to the best source.
+-- Until now the ingest marked a work's first photograph at insert and never cleared it, so a work
+-- whose photograph was added in front in Airtable between two runs carries two. The earlier row
+-- keeps the mark here; the next run settles it properly.
+update public.images i set is_hero = false
+where i.is_hero and exists (
+  select 1 from public.images j
+  where j.item_id = i.item_id and j.is_hero and (j.created_at, j.id) < (i.created_at, i.id)
+);
 create unique index images_one_hero on public.images (item_id) where is_hero;
 
 -- Masters: not readable by any signed-in person, member or not. The commands on Workshop write and

@@ -2,18 +2,19 @@
  * `npm run masters` — the archival capture comes in. The folders, the sorting, and the run itself.
  *
  * A master is stored once (its key is its SHA-256), write-once, in the masters bucket, as kind
- * `master` — a kind no door serves and no signed-in session can even read. Each work's picture
- * moves to its best master; the Airtable snapshot keeps its row, no longer the picture. The ladder
- * is then cut from that master. Nothing here deletes a file — not from the folders, not from the
- * source being sorted, not from the bucket.
+ * `master` — a kind no door serves and no signed-in session can even read. Its ladder is cut; only
+ * then does the work's picture move to it, and only if the ladder is whole. The Airtable snapshot
+ * keeps its row, no longer the picture — or still the picture, while a master will not cut.
+ * Nothing here deletes a file — not from the folders, not from the source being sorted, not from
+ * the bucket.
  */
 import { createHash } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { Client } from "pg";
 import type { ObjectStore } from "../ingest/storage";
-import { MARKER, MASTER_TYPES, PICTURE_LIKE, placeFile, planFolders, type Marker, type MasterWork } from "./masters";
-import { cutLadders, heroMasterSources, pictureTally, settleHeroes, type LadderCounts, type LadderError, type PictureTally } from "./pictures";
+import { MARKER, MASTER_TYPES, PICTURE_LIKE, placeFile, planFolders, WORK_FOLDER, type Marker, type MasterWork } from "./masters";
+import { candidateMasterSources, cutLadders, pictureTally, settleHeroes, type LadderCounts, type LadderError, type PictureTally } from "./pictures";
 import type { Renderer } from "./render";
 
 const README = `masters — one folder per work. Drop the photographer's or gallery's files for a work into its folder.
@@ -45,28 +46,51 @@ export async function loadMasterWorks(db: Client, collectionId: string): Promise
   }));
 }
 
+function readMarker(root: string, folder: string): Marker | null {
+  const marker = path.join(root, folder, MARKER);
+  if (!existsSync(marker)) return null;
+  try {
+    const j = JSON.parse(readFileSync(marker, "utf8")) as Record<string, string>;
+    if (!j.airtable_record_id) return null;
+    return { recordId: j.airtable_record_id, artist: j.artist ?? "", surname: j.surname ?? "", title: j.title ?? "", year: j.year ?? "", folder };
+  } catch {
+    return null;
+  }
+}
+
+function folders(root: string): string[] {
+  if (!existsSync(root)) return [];
+  return readdirSync(root).filter((name) => !name.startsWith(".") && statSync(path.join(root, name)).isDirectory());
+}
+
 /** Every work folder under `root`, by the marker inside it. */
 export function readMarkers(root: string): Marker[] {
-  if (!existsSync(root)) return [];
-  const out: Marker[] = [];
-  for (const name of readdirSync(root)) {
-    const marker = path.join(root, name, MARKER);
-    if (!existsSync(marker)) continue;
-    try {
-      const j = JSON.parse(readFileSync(marker, "utf8")) as Record<string, string>;
-      if (!j.airtable_record_id) continue;
-      out.push({ recordId: j.airtable_record_id, artist: j.artist ?? "", surname: j.surname ?? "", title: j.title ?? "", year: j.year ?? "", folder: name });
-    } catch {
-      // a marker that does not parse is reported by --report as a folder with no work
-    }
-  }
-  return out;
+  return folders(root)
+    .map((f) => readMarker(root, f))
+    .filter((m): m is Marker => m !== null);
+}
+
+/** Folders named like a work folder (`NNN-…`) whose marker is missing or cannot be read. */
+export function unmarkedFolders(root: string): string[] {
+  return folders(root).filter((f) => WORK_FOLDER.test(f) && readMarker(root, f) === null);
 }
 
 export type PrepareResult = { created: string[]; kept: number; folders: string[] };
 
+/**
+ * One folder per work. Existing folders are kept by the record id in their marker; a folder named
+ * like one but without a readable marker is refused — it would be made again under a new number,
+ * and whatever is in it would never be taken.
+ */
 export function prepareFolders(root: string, works: MasterWork[], now = new Date()): PrepareResult {
   mkdirSync(root, { recursive: true });
+  const unmarked = unmarkedFolders(root);
+  if (unmarked.length) {
+    throw new Error(
+      `${unmarked.length} folder(s) in ${root} are named like work folders but carry no readable ${MARKER}; nothing was changed. ` +
+        `Restore the marker, or move the folder aside:\n  ${unmarked.join("\n  ")}`,
+    );
+  }
   const existing = new Map(readMarkers(root).map((m) => [m.recordId, m.folder]));
   const plan = planFolders(works, existing);
   const created: string[] = [];
@@ -121,10 +145,32 @@ function walk(dir: string, rel = ""): string[] {
   return out;
 }
 
+const sha256 = (file: string) => createHash("sha256").update(readFileSync(file)).digest("hex");
+
+/** The same bytes? Sizes first (cheap), the fingerprint only when they agree. */
+function sameFile(a: string, b: string): boolean {
+  return statSync(a).size === statSync(b).size && sha256(a) === sha256(b);
+}
+
+/**
+ * Where a file lands in its work folder: its own name, or `name-2`, `name-3`… when a different
+ * file already has it. If any of those is the same file, it is already there.
+ */
+function landing(dir: string, name: string, source: string): { dest: string; already: boolean } {
+  const ext = path.extname(name);
+  const stem = name.slice(0, name.length - ext.length);
+  for (let i = 1; ; i++) {
+    const dest = path.join(dir, i === 1 ? name : `${stem}-${i}${ext}`);
+    if (!existsSync(dest)) return { dest, already: false };
+    if (sameFile(source, dest)) return { dest, already: true };
+  }
+}
+
 /**
  * Copies every picture under `from` into its work's folder. Copies, never moves: the source may be
- * a synced folder (Dropbox) where a move would be a deletion. A file already in its folder under
- * the same name and size is left alone; a different file with the same name is kept beside it.
+ * a synced folder (Dropbox) where a move would be a deletion. A file already in its folder, under
+ * its own name or a numbered one, is left alone; a different file with the same name is kept
+ * beside it under the next number. A second run copies nothing.
  */
 export function sortFrom(root: string, from: string): SortResult {
   const works = readMarkers(root);
@@ -132,10 +178,10 @@ export function sortFrom(root: string, from: string): SortResult {
   if (!works.length) throw new Error(`No prepared folders in ${root}. Run npm run masters -- --prepare first.`);
   const fromAbs = path.resolve(from);
   // When the folder being sorted lives inside the masters folder, its own work folders are home already.
-  const workFolders = new Set(works.map((w) => path.join(root, w.folder)));
+  const workFolders = works.map((w) => path.join(root, w.folder) + path.sep);
   for (const rel of walk(fromAbs)) {
     const abs = path.join(fromAbs, rel);
-    if ([...workFolders].some((f) => abs.startsWith(f + path.sep))) continue;
+    if (workFolders.some((f) => abs.startsWith(f))) continue;
     const ext = path.extname(rel).toLowerCase();
     if (!PICTURE_LIKE.has(ext)) continue;
     const place = placeFile(rel, works);
@@ -147,17 +193,14 @@ export function sortFrom(root: string, from: string): SortResult {
       result.unplaced.push({ file: rel, why: `the title does not decide between ${place.candidates.map((c) => c.folder).join(", ")}` });
       continue;
     }
-    const destDir = path.join(root, place.work.folder);
-    let dest = path.join(destDir, path.basename(rel));
-    const size = statSync(abs).size;
-    if (existsSync(dest)) {
-      if (statSync(dest).size === size) {
-        result.alreadyThere++;
-        continue;
-      }
-      const e = path.extname(dest);
-      let i = 2;
-      while (existsSync(dest)) dest = path.join(destDir, `${path.basename(rel, e)}-${i++}${e}`);
+    if (place.status === "title-unknown") {
+      result.unplaced.push({ file: rel, why: `the name carries a title the register does not know; the artist's one work is ${place.work.folder} — drag it there by hand if that is what it is` });
+      continue;
+    }
+    const { dest, already } = landing(path.join(root, place.work.folder), path.basename(rel), abs);
+    if (already) {
+      result.alreadyThere++;
+      continue;
     }
     copyFileSync(abs, dest);
     result.copied.push({ file: rel, folder: place.work.folder });
@@ -166,7 +209,7 @@ export function sortFrom(root: string, from: string): SortResult {
 }
 
 // ---------------------------------------------------------------------------------------------
-// The run: masters into the archive, the picture moved, the ladder cut
+// The run: masters into the archive, the ladder cut, the picture moved
 
 export type MastersReport = {
   masters: { created: number; unchanged: number };
@@ -258,12 +301,13 @@ export async function runMasters(deps: MastersDeps): Promise<MastersReport> {
     }
   }
 
-  report.picturesMoved = await settleHeroes(db, collectionId);
-  const sources = await heroMasterSources(db, collectionId);
+  // The ladder first, for the master that would hang; the picture moves only to a whole ladder.
+  const sources = await candidateMasterSources(db, collectionId);
   if (sources.length) log(`Cutting the ladder for ${sources.length} master(s)…`);
   const cut = await cutLadders(db, store, renderer, deps.renditionsBucket, sources, log);
   report.renditions = cut.counts;
   report.renditionErrors = cut.errors;
+  report.picturesMoved = await settleHeroes(db, collectionId);
   report.pictures = await pictureTally(db, collectionId);
   return report;
 }
@@ -273,7 +317,11 @@ export async function runMasters(deps: MastersDeps): Promise<MastersReport> {
 
 export type FolderLine = { folder: string; files: number; inArchive: number };
 
-export async function folderReport(db: Client, root: string, collectionId: string): Promise<{ lines: FolderLine[]; loose: string[]; tally: PictureTally }> {
+export async function folderReport(
+  db: Client,
+  root: string,
+  collectionId: string,
+): Promise<{ lines: FolderLine[]; loose: string[]; unmarked: string[]; tally: PictureTally }> {
   const markers = readMarkers(root);
   const items = await db.query<{ id: string; airtable_record_id: string }>("select id, airtable_record_id from items where collection_id = $1", [collectionId]);
   const itemOf = new Map(items.rows.map((r) => [r.airtable_record_id, r.id]));
@@ -293,5 +341,5 @@ export async function folderReport(db: Client, root: string, collectionId: strin
   const loose = existsSync(root)
     ? walk(root).filter((f) => !workFolders.has(f.split(path.sep)[0]) && PICTURE_LIKE.has(path.extname(f).toLowerCase()))
     : [];
-  return { lines, loose, tally: await pictureTally(db, collectionId) };
+  return { lines, loose, unmarked: unmarkedFolders(root), tally: await pictureTally(db, collectionId) };
 }

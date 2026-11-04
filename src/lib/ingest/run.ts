@@ -7,8 +7,8 @@
  *   B. one transaction: artists, items, ownership, provenance
  *   C. attachments, one at a time, each committed as it lands — so an interrupted run resumes
  *      where it stopped and never leaves a half-written picture.
- *   D. the ladder (M1-02a): each work's picture moves to its best source, and every Airtable
- *      photograph has its renditions cut — the same code `npm run masters` uses.
+ *   D. the ladder (M1-02a): every Airtable photograph has its renditions cut, then each work's
+ *      picture moves to its best source — the same code `npm run masters` uses.
  */
 import { createHash } from "node:crypto";
 import type { Client } from "pg";
@@ -246,7 +246,7 @@ export async function runIngest(deps: IngestDeps): Promise<IngestReport> {
       await syncAttachments(db, store, fetchImpl, deps.mastersBucket, collectionId, items, provenance, itemIds, report, log);
 
       // -- phase D: the ladder ------------------------------------------------------------------
-      report.picturesMoved = await settleHeroes(db, collectionId);
+      // Cut first, settle after: a picture is never a source without its renditions.
       if (deps.ladder) {
         log("Cutting the ladder…");
         const sources = await snapshotSources(db, collectionId);
@@ -254,6 +254,7 @@ export async function runIngest(deps: IngestDeps): Promise<IngestReport> {
         report.renditions = cut.counts;
         report.renditionErrors = cut.errors;
       }
+      report.picturesMoved = await settleHeroes(db, collectionId);
       report.pictures = await pictureTally(db, collectionId);
     }
 

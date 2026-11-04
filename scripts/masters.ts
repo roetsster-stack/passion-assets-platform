@@ -6,7 +6,7 @@
  *                                         right work folders; every file it cannot place is listed
  *   npm run masters -- --report           what is in the folders, and what is in the archive
  *   npm run masters                       take everything in the work folders into the archive: each
- *                                         master stored once, the work's picture moved to it, the ladder cut
+ *                                         master stored once, its ladder cut, then the work's picture moved to it
  *
  * Needs, in ~/curator/.env: DATABASE_URL, R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY,
  * R2_BUCKET_MASTERS, R2_BUCKET_RENDITIONS; optional R2_JURISDICTION, CURATOR_COLLECTION_NAME and
@@ -77,6 +77,10 @@ async function main() {
       if (r.loose.length) {
         console.log(`loose files, not in a work folder (${r.loose.length}) — npm run masters -- --from "${root}" places them:`);
         for (const f of r.loose) console.log(`  ${f}`);
+      }
+      if (r.unmarked.length) {
+        console.log(`folders named like work folders with no readable marker (${r.unmarked.length}) — --prepare will refuse until these are restored or moved aside:`);
+        for (const f of r.unmarked) console.log(`  ${f}`);
       }
       console.log(`works: ${r.tally.withMaster} with a master, ${r.tally.onSnapshot} on the Airtable snapshot, ${r.tally.withoutPicture} with no picture yet`);
     });

@@ -234,3 +234,37 @@ build pass.
 (`~/Library/CloudStorage/Dropbox/Art/Michael Roets - Art Images`) is not on this Mac, so `--from` has only been
 tested on fixtures. Two loose files sit in `~/curator/masters/Michael Roets - Art Images/`; `--report` lists them
 and `--from` can place them.
+
+### Revised after the cold review — 4 Nov 2026
+
+The checker's verdict was "merge after fixes": one blocker and seven should-fixes, all in the masters
+command and the migration, none in the serving path. All eight are in, each with the test the review asked
+for; 104 tests now.
+
+- **The order of the run (the blocker).** The ladder is cut *first*; only then does a work's picture move
+  to its master, and only if the ladder is whole. A master whose file will not cut — a layered TIFF, say,
+  whose header reads but whose pixels do not — stays in the archive, is reported on every run, and the
+  Airtable photograph keeps hanging. The same holds for a run interrupted halfway: the next run completes
+  the ladder, and the picture moves then. Before, the picture moved first, and such a work would have hung
+  as a label card with no way back.
+- **Surnames with a particle** ("de Villiers", "le Roux") now match a filename with or without the particle,
+  and run together.
+- **The artist's one work** takes a file only when the name carries nothing but the surname, a year or a
+  camera's counter. A name with a title the register does not know is listed, with the one folder it might
+  belong to, and never placed by guess.
+- **`--from` twice, with a different file under the same name,** keeps both, once; the third run copies
+  nothing. Files are compared by their bytes, not only their size.
+- **Which master hangs:** "Work.tif" now hangs before "Work (2).tif" whatever the alphabet says, and a word
+  of the work's own title ("Side Door", "Back Garden") no longer makes a capture a "view".
+- **The migration** first clears the second picture on any work that has two (main's ingest could leave one)
+  and only then forbids it. The live database had none, so the migration already applied there is the same
+  in effect; the change matters for a fresh database and for CI.
+- **`--prepare` refuses** — naming them, changing nothing — when a folder named like a work folder has no
+  readable marker, rather than making that work's folder again under a new number. `--report` lists such
+  folders too. On Workshop, `--report` says 107 work folders and no unmarked ones.
+- **The masters test** uses invented artists and titles, shaped like the real ones.
+
+One claim in the note above is narrowed, as the review noted: a rendition's own record names the master it
+was cut from, by id. That id is not an address — asking the image door for it gets 404, from the database's
+rule and from the door's own — and nothing of the master's address, bucket or fingerprint is readable. The
+page's picture query returns no master id at all.

@@ -2,6 +2,10 @@
  * The register's side of the ladder, shared by `npm run ingest` and `npm run masters` so the two
  * commands always agree: cut a source's renditions into the renditions bucket, and move each
  * work's picture (`is_hero`) to its best source. Both are idempotent — a second run writes nothing.
+ *
+ * The order matters: the ladder is cut first, and only then does the picture move. A master whose
+ * file will not cut — or whose cut was interrupted — never becomes the picture; the Airtable
+ * photograph stays until the master's ladder is whole.
  */
 import { createHash } from "node:crypto";
 import type { Client } from "pg";
@@ -30,10 +34,15 @@ export function renditionKey(s: Pick<SourceToCut, "collection_id" | "item_id" | 
   return `collections/${s.collection_id}/items/${s.item_id}/renditions/${s.id}/${longSide}.${EXT[format]}`;
 }
 
+/** How many renditions a whole ladder has for a source of this size: every rung in every format. */
+export function wholeLadder(longSide: number | null): number {
+  return longSide ? ladderFor(longSide).length * FORMATS.length : 0;
+}
+
 /**
  * Cuts one source's ladder, unless it is already whole. Each rendition is written once (by its
  * key) and recorded once (one rung of one format per source); the source row learns its own size
- * and its stand-in.
+ * and its stand-in last, so a source with a stand-in has a whole ladder.
  */
 export async function cutLadder(
   db: Client,
@@ -105,12 +114,12 @@ export async function cutLadders(
   return { counts, errors };
 }
 
-const SOURCE_COLUMNS = "id, collection_id, item_id, storage_bucket, storage_key, long_side, placeholder";
+const SOURCE_COLUMNS = ["id", "collection_id", "item_id", "storage_bucket", "storage_key", "long_side", "placeholder"] as const;
 
 /** Every Airtable photograph of the works still in the source. */
 export async function snapshotSources(db: Client, collectionId: string): Promise<SourceToCut[]> {
   const res = await db.query<SourceToCut>(
-    `select ${SOURCE_COLUMNS.split(", ").map((c) => `m.${c}`).join(", ")}
+    `select ${SOURCE_COLUMNS.map((c) => `m.${c}`).join(", ")}
      from images m join items i on i.id = m.item_id
      where m.collection_id = $1 and m.kind = 'lowres_airtable' and i.source_removed_at is null
      order by i.id, m.sort_order, m.id`,
@@ -119,33 +128,52 @@ export async function snapshotSources(db: Client, collectionId: string): Promise
   return res.rows;
 }
 
-/** Each work's picture, when it is a master. */
-export async function heroMasterSources(db: Client, collectionId: string): Promise<SourceToCut[]> {
-  const res = await db.query<SourceToCut>(
-    `select ${SOURCE_COLUMNS} from images where collection_id = $1 and kind = 'master' and is_hero order by item_id`,
+/**
+ * The master that would hang for each work that has one — the first flat capture — whether or
+ * not its ladder is cut yet. These are cut before the pictures settle.
+ */
+export async function candidateMasterSources(db: Client, collectionId: string): Promise<SourceToCut[]> {
+  const res = await db.query<SourceToCut & Source & { title: string | null }>(
+    `select ${SOURCE_COLUMNS.map((c) => `m.${c}`).join(", ")}, m.kind, m.sort_order, m.original_filename, i.title
+     from images m join items i on i.id = m.item_id
+     where m.collection_id = $1 and m.kind = 'master'
+     order by m.item_id, m.id`,
     [collectionId],
   );
-  return res.rows;
+  const byItem = new Map<string, typeof res.rows>();
+  for (const r of res.rows) byItem.set(r.item_id, [...(byItem.get(r.item_id) ?? []), r]);
+  const out: SourceToCut[] = [];
+  for (const rows of byItem.values()) {
+    const best = bestSource(rows, { title: rows[0].title });
+    if (best) out.push(Object.fromEntries(SOURCE_COLUMNS.map((c) => [c, best[c]])) as SourceToCut);
+  }
+  return out;
 }
 
 /**
- * Moves each work's picture to its best source. Returns how many works changed picture. The old
- * picture keeps its row (and its renditions); it is simply no longer the one that hangs.
+ * Moves each work's picture to its best source: a master whose ladder is whole, else the Airtable
+ * photograph. Returns how many works changed picture. The old picture keeps its row (and its
+ * renditions); it is simply no longer the one that hangs.
  */
 export async function settleHeroes(db: Client, collectionId: string): Promise<number> {
-  const res = await db.query<Source & { item_id: string; is_hero: boolean }>(
-    "select id, item_id, kind, sort_order, original_filename, is_hero from images where collection_id = $1 and kind in ('master', 'lowres_airtable')",
+  const res = await db.query<Source & { item_id: string; is_hero: boolean; title: string | null; long_side: number | null; renditions: number }>(
+    `select m.id, m.item_id, m.kind, m.sort_order, m.original_filename, m.is_hero, i.title, m.long_side,
+            (select count(*) from images r where r.derived_from_image_id = m.id and r.kind = 'rendition')::int as renditions
+     from images m join items i on i.id = m.item_id
+     where m.collection_id = $1 and m.kind in ('master', 'lowres_airtable')`,
     [collectionId],
   );
-  const byItem = new Map<string, (Source & { is_hero: boolean })[]>();
+  const byItem = new Map<string, typeof res.rows>();
   for (const r of res.rows) byItem.set(r.item_id, [...(byItem.get(r.item_id) ?? []), r]);
   let moved = 0;
-  for (const [itemId, sources] of byItem) {
-    const best = bestSource(sources);
-    const current = sources.filter((s) => s.is_hero);
+  for (const [itemId, rows] of byItem) {
+    const sources = rows.map((r) => ({ ...r, cut: r.renditions >= wholeLadder(r.long_side) && r.renditions > 0 }));
+    const best = bestSource(sources, { title: rows[0].title });
+    const current = rows.filter((s) => s.is_hero);
     if (best && current.length === 1 && current[0].id === best.id) continue;
+    if (!best && current.length === 0) continue;
     // Clear first: the database allows one picture per work at every moment.
-    await db.query("update images set is_hero = false where item_id = $1 and is_hero and id <> $2", [itemId, best?.id ?? null]);
+    await db.query("update images set is_hero = false where item_id = $1 and is_hero and id is distinct from $2", [itemId, best?.id ?? null]);
     if (best) await db.query("update images set is_hero = true where id = $1 and not is_hero", [best.id]);
     moved++;
   }
@@ -154,15 +182,15 @@ export async function settleHeroes(db: Client, collectionId: string): Promise<nu
 
 export type PictureTally = { withMaster: number; onSnapshot: number; withoutPicture: number };
 
-/** How the works still in the register stand: a master, the Airtable snapshot, or nothing yet. */
+/** How the works still in the register hang: their master, the Airtable snapshot, or nothing yet. */
 export async function pictureTally(db: Client, collectionId: string): Promise<PictureTally> {
   const res = await db.query<{ with_master: string; on_snapshot: string; without: string }>(
     `select
-       count(*) filter (where exists (select 1 from images m where m.item_id = i.id and m.kind = 'master')) as with_master,
-       count(*) filter (where not exists (select 1 from images m where m.item_id = i.id and m.kind = 'master')
-                          and exists (select 1 from images m where m.item_id = i.id and m.kind = 'lowres_airtable')) as on_snapshot,
-       count(*) filter (where not exists (select 1 from images m where m.item_id = i.id and m.kind in ('master', 'lowres_airtable'))) as without
-     from items i where i.collection_id = $1 and i.source_removed_at is null`,
+       count(*) filter (where h.kind = 'master') as with_master,
+       count(*) filter (where h.kind = 'lowres_airtable') as on_snapshot,
+       count(*) filter (where h.id is null) as without
+     from items i left join images h on h.item_id = i.id and h.is_hero
+     where i.collection_id = $1 and i.source_removed_at is null`,
     [collectionId],
   );
   const r = res.rows[0];

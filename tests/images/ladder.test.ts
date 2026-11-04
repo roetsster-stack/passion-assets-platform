@@ -131,10 +131,19 @@ describe("how the page asks for a picture", () => {
 });
 
 describe("which file is a work's picture", () => {
-  const s = (id: string, kind: Source["kind"], sort_order = 0, original_filename: string | null = null): Source => ({ id, kind, sort_order, original_filename });
+  const s = (id: string, kind: Source["kind"], sort_order = 0, original_filename: string | null = null, cut?: boolean): Source => ({
+    id,
+    kind,
+    sort_order,
+    original_filename,
+    ...(cut === undefined ? {} : { cut }),
+  });
 
-  it("a master over the Airtable snapshot, always", () => {
+  it("a master over the Airtable snapshot — once its ladder is cut; until then, or if it will not cut, the snapshot stays", () => {
     expect(bestSource([s("a", "lowres_airtable"), s("m", "master", 5, "Work.tif")])?.id).toBe("m");
+    expect(bestSource([s("a", "lowres_airtable"), s("m", "master", 0, "Work.tif", true)])?.id).toBe("m");
+    expect(bestSource([s("a", "lowres_airtable"), s("m", "master", 0, "Work.tif", false)])?.id).toBe("a");
+    expect(bestSource([s("m", "master", 0, "Work.tif", false)])).toBeNull();
   });
 
   it("among masters, the first flat capture: details, raking light and the back come after", () => {
@@ -148,6 +157,22 @@ describe("which file is a work's picture", () => {
     expect(bestSource(masters.filter((m) => m.id === "d1" || m.id === "d2"))?.id).toBe("d1"); // numbered by number, not by text
     expect(isAlternateView("Painter_Work_2010_insitu.jpg")).toBe(true);
     expect(isAlternateView("Painter, Inside the Room.tif")).toBe(false);
+  });
+
+  it("two plain captures: the plain name hangs before the numbered one, whatever the collation says", () => {
+    expect(bestSource([s("two", "master", 0, "Work (2).tif"), s("one", "master", 0, "Work.tif")])?.id).toBe("one");
+    expect(bestSource([s("two", "master", 0, "Work_2.tif"), s("one", "master", 0, "Work.tif")])?.id).toBe("one");
+    expect(bestSource([s("one", "master", 0, "Work.tif"), s("two", "master", 0, "Work (2).tif")])?.id).toBe("one");
+  });
+
+  it("a title with a view word in it is not a view: the plain capture hangs, the detail of it comes after", () => {
+    const title = "Side Door";
+    expect(isAlternateView("Painter, Side Door, 2010.tif", title)).toBe(false);
+    expect(isAlternateView("Painter, Side Door, 2010 (detail).tif", title)).toBe(true);
+    const files = [s("detail", "master", 0, "Painter, Door (detail).tif"), s("plain", "master", 0, "Painter, Side Door, 2010.tif")];
+    expect(bestSource(files, { title })?.id).toBe("plain");
+    // Without the title, "side" would make the plain capture a view too, and the detail — the shorter name — would hang.
+    expect(bestSource(files)?.id).toBe("detail");
   });
 
   it("among Airtable photographs, the first attachment; none at all, no picture", () => {
