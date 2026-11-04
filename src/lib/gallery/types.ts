@@ -5,11 +5,25 @@
  * (`toWork`, in `read.ts`) and only this shape is handed to components.
  */
 
-export type Picture = {
-  /** The image row's id; the browser asks for `/i/<id>` and the image door decides. */
+/** One rung of the ladder. The browser asks for `/i/<id>` and the image door decides. */
+export type Rendition = {
   id: string;
+  format: "avif" | "jpeg";
+  width: number;
+  height: number;
+};
+
+/**
+ * A work's picture: the size of its best source (a master, else the Airtable photograph), the
+ * 24 px stand-in drawn before any file arrives, and the renditions cut from it. Never the
+ * source's own id, and never a master's: only renditions are ever asked for.
+ */
+export type Picture = {
   width: number | null;
   height: number | null;
+  /** A data URI (~600 bytes), in the HTML itself. */
+  placeholder: string | null;
+  renditions: Rendition[];
 };
 
 export type Work = {
@@ -29,6 +43,6 @@ export type Work = {
   acquiredFrom: string | null;
   /** The sold line is the one status the gallery shows: the tail under the hairline. */
   sold: boolean;
-  /** The work's first photograph; null when there is none. */
+  /** The work's picture; null when it has none yet (it hangs as its label). */
   picture: Picture | null;
 };

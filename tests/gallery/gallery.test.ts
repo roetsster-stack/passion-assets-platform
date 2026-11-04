@@ -6,10 +6,17 @@
 import { describe, expect, it } from "vitest";
 import { chooseHero } from "@/lib/gallery/hero";
 import { hang, neighbours, walk } from "@/lib/gallery/order";
-import { firstPicture, toWork, type WorkRow } from "@/lib/gallery/read";
+import { toPicture, toWork, type PictureRow, type WorkRow } from "@/lib/gallery/read";
 import { acquisitionLine, monthYear, tombstoneDetail, tombstoneLine } from "@/lib/gallery/tombstone";
 import { CONTAINED_MIN, FULL_BLEED_MIN, treatment } from "@/lib/gallery/treatment";
-import type { Work } from "@/lib/gallery/types";
+import type { Picture, Work } from "@/lib/gallery/types";
+
+const pic = (width: number | null, height: number | null): Picture => ({
+  width,
+  height,
+  placeholder: null,
+  renditions: [{ id: "00000000-0000-4000-8000-000000000001", format: "jpeg", width: width ?? 480, height: height ?? 480 }],
+});
 
 function work(id: string, over: Partial<Work> = {}): Work {
   return {
@@ -24,7 +31,7 @@ function work(id: string, over: Partial<Work> = {}): Work {
     acquiredOn: null,
     acquiredFrom: null,
     sold: false,
-    picture: { id: `img-${id}`, width: 2000, height: 1500 },
+    picture: pic(2000, 1500),
     ...over,
   };
 }
@@ -65,9 +72,9 @@ describe("the order of the wall", () => {
 describe("the hero", () => {
   it("is the newest held acquisition whose photograph is at least 1,600 px on its long side", () => {
     const works = [
-      work("newest-small", { acquiredOn: "2026-01-01", picture: { id: "a", width: 1200, height: 900 } }),
+      work("newest-small", { acquiredOn: "2026-01-01", picture: pic(1200, 900) }),
       work("newest-none", { acquiredOn: "2025-12-01", picture: null }),
-      work("good", { acquiredOn: "2025-06-01", picture: { id: "b", width: 1000, height: FULL_BLEED_MIN } }),
+      work("good", { acquiredOn: "2025-06-01", picture: pic(1000, FULL_BLEED_MIN) }),
       work("older-good", { acquiredOn: "2020-01-01" }),
       work("sold-newer-good", { acquiredOn: "2026-06-01", sold: true }),
     ];
@@ -82,23 +89,23 @@ describe("the hero", () => {
   });
 
   it("is absent when nothing qualifies", () => {
-    expect(chooseHero([work("x", { picture: { id: "p", width: 800, height: 600 } })])).toBeNull();
+    expect(chooseHero([work("x", { picture: pic(800, 600) })])).toBeNull();
     expect(chooseHero([])).toBeNull();
   });
 });
 
 describe("how a photograph hangs", () => {
   it("follows the two thresholds on the long side, portrait or landscape", () => {
-    expect(treatment({ id: "p", width: FULL_BLEED_MIN, height: 10 })).toBe("full");
-    expect(treatment({ id: "p", width: 10, height: FULL_BLEED_MIN })).toBe("full");
-    expect(treatment({ id: "p", width: FULL_BLEED_MIN - 1, height: 10 })).toBe("contained");
-    expect(treatment({ id: "p", width: CONTAINED_MIN, height: 10 })).toBe("contained");
-    expect(treatment({ id: "p", width: CONTAINED_MIN - 1, height: 10 })).toBe("matted");
+    expect(treatment(pic(FULL_BLEED_MIN, 10))).toBe("full");
+    expect(treatment(pic(10, FULL_BLEED_MIN))).toBe("full");
+    expect(treatment(pic(FULL_BLEED_MIN - 1, 10))).toBe("contained");
+    expect(treatment(pic(CONTAINED_MIN, 10))).toBe("contained");
+    expect(treatment(pic(CONTAINED_MIN - 1, 10))).toBe("matted");
   });
 
   it("a work with no photograph hangs as its label; an unmeasured one is never stretched", () => {
     expect(treatment(null)).toBe("label");
-    expect(treatment({ id: "p", width: null, height: null })).toBe("matted");
+    expect(treatment(pic(null, null))).toBe("matted");
   });
 });
 
@@ -137,11 +144,6 @@ describe("what a row may carry onto a page", () => {
     acquired_from: "A Gallery",
     status: "hung",
     artists: { display_name: "Pat Painter" },
-    images: [
-      { id: "i-master", kind: "master", width: 9000, height: 6000, is_hero: true, sort_order: 0 },
-      { id: "i-2", kind: "lowres_airtable", width: 1200, height: 800, is_hero: false, sort_order: 1 },
-      { id: "i-1", kind: "lowres_airtable", width: 1100, height: 800, is_hero: false, sort_order: 0 },
-    ],
     // What a wider row could hold. None of it may survive.
     purchase_price: 123456,
     purchase_price_zar: 123456,
@@ -152,8 +154,25 @@ describe("what a row may carry onto a page", () => {
     airtable_raw: { fields: { Price: 123456 } },
   } as unknown as WorkRow;
 
+  const R1 = "11111111-0000-4000-8000-000000000001";
+  const R2 = "11111111-0000-4000-8000-000000000002";
+  // A picture row, with what a wider one could hold: none of it may survive either.
+  const picRow = {
+    item_id: "w1",
+    width: 3000,
+    height: 2000,
+    placeholder: "data:image/jpeg;base64,AAAA",
+    renditions: [
+      { id: R1, format: "jpeg", width: 480, height: 320, long_side: 480, storage_key: "collections/c/items/w1/renditions/x/480.jpg" },
+      { id: R2, format: "avif", width: 480, height: 320, long_side: 480, storage_bucket: "curator-masters" },
+      { id: R1, format: "tiff", width: 480, height: 320 },
+    ],
+    source_id: "i-master",
+    sha256: "deadbeef",
+  } as unknown as PictureRow;
+
   it("only the gallery's fields travel; value, price, location and ownership do not", () => {
-    const w = toWork(row);
+    const w = toWork(row, picRow);
     expect(Object.keys(w).sort()).toEqual(
       ["acquiredFrom", "acquiredOn", "artist", "dimensions", "edition", "id", "medium", "picture", "sold", "title", "year", "yearText"].sort(),
     );
@@ -163,10 +182,28 @@ describe("what a row may carry onto a page", () => {
     expect(w.sold).toBe(false);
   });
 
-  it("the picture is the first servable photograph; a master is never chosen", () => {
-    expect(toWork(row).picture).toEqual({ id: "i-1", width: 1100, height: 800 });
-    expect(firstPicture([{ id: "m", kind: "master", width: 1, height: 1, is_hero: true, sort_order: 0 }])).toBeNull();
-    expect(firstPicture(null)).toBeNull();
+  it("the picture carries renditions only: no storage address, no source id, nothing a row smuggles in", () => {
+    const w = toWork(row, picRow);
+    expect(w.picture).toEqual({
+      width: 3000,
+      height: 2000,
+      placeholder: "data:image/jpeg;base64,AAAA",
+      renditions: [
+        { id: R1, format: "jpeg", width: 480, height: 320 },
+        { id: R2, format: "avif", width: 480, height: 320 },
+      ],
+    });
+    const text = JSON.stringify(w.picture);
+    for (const leak of ["curator-masters", "collections/", "storage", "i-master", "sha"]) expect(text).not.toContain(leak);
+  });
+
+  it("a picture without a JPEG rung, with a bad id, or with a stand-in that is not an image hangs safely", () => {
+    expect(toPicture(null)).toBeNull();
+    expect(toPicture({ ...picRow, renditions: [] })).toBeNull();
+    expect(toPicture({ ...picRow, renditions: [{ id: R2, format: "avif", width: 480, height: 320 }] })).toBeNull();
+    expect(toPicture({ ...picRow, renditions: [{ id: "../i-master", format: "jpeg", width: 480, height: 320 }] })).toBeNull();
+    expect(toPicture({ ...picRow, placeholder: 'x"); background:url(https://elsewhere' })?.placeholder).toBeNull();
+    expect(toWork(row).picture).toBeNull();
   });
 
   it("sold is read from the status and nothing else of the status travels", () => {
