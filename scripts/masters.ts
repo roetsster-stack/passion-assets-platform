@@ -82,7 +82,9 @@ async function main() {
         console.log(`folders named like work folders with no readable marker (${r.unmarked.length}) — --prepare will refuse until these are restored or moved aside:`);
         for (const f of r.unmarked) console.log(`  ${f}`);
       }
-      console.log(`works: ${r.tally.withMaster} with a master, ${r.tally.onSnapshot} on the Airtable snapshot, ${r.tally.withoutPicture} with no picture yet`);
+      console.log(
+        `works: ${r.tally.withMaster} with a master, ${r.tally.onSnapshot} on the Airtable snapshot, ${r.tally.withoutPicture} with no picture yet; ${r.tally.withGlass} open into the glass`,
+      );
     });
     return;
   }
@@ -93,6 +95,7 @@ async function main() {
     secretAccessKey: required("R2_SECRET_ACCESS_KEY"),
     jurisdiction: parseR2Jurisdiction(process.env.R2_JURISDICTION),
   });
+  console.log("Taking the masters in…");
   const r = await withDb((db, collectionId) =>
     runMasters({
       db,
@@ -109,7 +112,15 @@ async function main() {
   console.log(`masters      created ${String(r.masters.created).padStart(4)}  unchanged ${String(r.masters.unchanged).padStart(4)}`);
   console.log(`renditions   created ${String(r.renditions.created).padStart(4)}  unchanged ${String(r.renditions.unchanged).padStart(4)}`);
   if (r.picturesMoved) console.log(`pictures: ${r.picturesMoved} work(s) now hang their master`);
-  console.log(`works: ${r.pictures.withMaster} with a master, ${r.pictures.onSnapshot} on the Airtable snapshot, ${r.pictures.withoutPicture} with no picture yet`);
+  console.log(`tile sets    created ${String(r.tileSets.counts.created).padStart(4)}  unchanged ${String(r.tileSets.counts.unchanged).padStart(4)}`);
+  for (const c of r.tileSets.cut) console.log(`  glass: ${c.label} — ${c.longSide} px, ${c.levels} levels`);
+  if (r.tileSets.errors.length) {
+    console.log(`tile set errors: ${r.tileSets.errors.length} (re-run to retry)`);
+    for (const e of r.tileSets.errors.slice(0, 10)) console.log(`  image ${e.imageId}: ${e.error}`);
+  }
+  console.log(
+    `works: ${r.pictures.withMaster} with a master, ${r.pictures.onSnapshot} on the Airtable snapshot, ${r.pictures.withoutPicture} with no picture yet; ${r.pictures.withGlass} open into the glass`,
+  );
   if (r.skipped.length) {
     console.log(`not taken (${r.skipped.length}):`);
     for (const s of r.skipped) console.log(`  ${s.file} — ${s.why}`);

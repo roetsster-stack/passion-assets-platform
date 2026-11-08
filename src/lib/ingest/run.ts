@@ -8,7 +8,8 @@
  *   C. attachments, one at a time, each committed as it lands — so an interrupted run resumes
  *      where it stopped and never leaves a half-written picture.
  *   D. the ladder (M1-02a): every Airtable photograph has its renditions cut, then each work's
- *      picture moves to its best source — the same code `npm run masters` uses.
+ *      picture moves to its best source; then the tiles (M1-02b) for every picture source large
+ *      enough for the glass — the same code `npm run masters` uses.
  */
 import { createHash } from "node:crypto";
 import type { Client } from "pg";
@@ -17,7 +18,7 @@ import type { AirtableAttachment, AirtableRecord, AirtableSource } from "./airta
 import { COLLECTION_TABLE, PROVENANCE_TABLE } from "./fields";
 import { artistFromRecord, mapItem, mapProvenance, type ArtistRow, type IngestRules, type ItemRow, type ProvenanceRow } from "./map";
 import type { ObjectStore } from "./storage";
-import { cutLadders, pictureTally, settleHeroes, snapshotSources, type LadderCounts, type LadderError, type PictureTally } from "../images/pictures";
+import { cutLadders, cutTileSets, pictureTally, settleHeroes, snapshotSources, type LadderCounts, type LadderError, type PictureTally, type TileSetsCut } from "../images/pictures";
 import type { Renderer } from "../images/render";
 
 export type Counts = { created: number; updated: number; unchanged: number; removed: number };
@@ -44,6 +45,8 @@ export type IngestReport = {
   renditionErrors: LadderError[];
   /** Works whose picture moved to a better source on this run. */
   picturesMoved: number;
+  /** Tile pyramids cut for the glass; null when the ladder was not run. */
+  tileSets: TileSetsCut | null;
   /** Works with a master, on the Airtable snapshot, or with no picture yet. */
   pictures: PictureTally | null;
   durationMs: number;
@@ -189,6 +192,7 @@ export async function runIngest(deps: IngestDeps): Promise<IngestReport> {
     renditions: null,
     renditionErrors: [],
     picturesMoved: 0,
+    tileSets: null,
     pictures: null,
     durationMs: 0,
   };
@@ -255,6 +259,7 @@ export async function runIngest(deps: IngestDeps): Promise<IngestReport> {
         report.renditionErrors = cut.errors;
       }
       report.picturesMoved = await settleHeroes(db, collectionId);
+      if (deps.ladder) report.tileSets = await cutTileSets(db, store, deps.ladder.renderer, deps.ladder.bucket, collectionId, log);
       report.pictures = await pictureTally(db, collectionId);
     }
 
@@ -290,6 +295,7 @@ function summarise(r: IngestReport) {
     renditions: r.renditions,
     renditionErrors: r.renditionErrors.length,
     picturesMoved: r.picturesMoved,
+    tileSets: r.tileSets ? { ...r.tileSets.counts, errors: r.tileSets.errors.length } : null,
     pictures: r.pictures,
     durationMs: r.durationMs,
   };

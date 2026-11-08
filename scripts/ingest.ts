@@ -16,6 +16,7 @@ import { loadEnvFile, required } from "../src/lib/env";
 import { sharpRenderer } from "../src/lib/images/render";
 import { createAirtableSource } from "../src/lib/ingest/airtable";
 import { loadRules } from "../src/lib/ingest/rules";
+import type { TileSetsCut } from "../src/lib/images/pictures";
 import { runIngest, type Counts, type IngestReport } from "../src/lib/ingest/run";
 import { createR2Store, parseR2Jurisdiction } from "../src/lib/ingest/storage";
 
@@ -51,10 +52,20 @@ function printReport(r: IngestReport) {
     for (const e of r.renditionErrors.slice(0, 10)) console.log(`  image ${e.imageId}: ${e.error}`);
   }
   if (r.picturesMoved) console.log(`pictures: ${r.picturesMoved} work(s) now hang a better source`);
+  if (r.tileSets) printTileSets(r.tileSets);
   if (r.pictures) {
     console.log(
-      `works: ${r.pictures.withMaster} with a master, ${r.pictures.onSnapshot} on the Airtable snapshot, ${r.pictures.withoutPicture} with no picture yet`,
+      `works: ${r.pictures.withMaster} with a master, ${r.pictures.onSnapshot} on the Airtable snapshot, ${r.pictures.withoutPicture} with no picture yet; ${r.pictures.withGlass} open into the glass`,
     );
+  }
+}
+
+function printTileSets(t: TileSetsCut) {
+  console.log(`${"tile sets".padEnd(12)} created ${String(t.counts.created).padStart(4)}  unchanged ${String(t.counts.unchanged).padStart(4)}`);
+  for (const c of t.cut) console.log(`  glass: ${c.label} — ${c.longSide} px, ${c.levels} levels`);
+  if (t.errors.length) {
+    console.log(`tile set errors: ${t.errors.length} (re-run to retry)`);
+    for (const e of t.errors.slice(0, 10)) console.log(`  image ${e.imageId}: ${e.error}`);
   }
 }
 
@@ -74,6 +85,7 @@ async function report(db: Client, collectionName: string) {
   console.log(`  pictures     ${await q("select count(*) n from images where collection_id = $1 and kind = 'lowres_airtable'")} Airtable photographs`);
   console.log(`  masters      ${await q("select count(*) n from images where collection_id = $1 and kind = 'master'")}`);
   console.log(`  renditions   ${await q("select count(*) n from images where collection_id = $1 and kind = 'rendition'")}`);
+  console.log(`  tile sets    ${await q("select count(*) n from images where collection_id = $1 and kind = 'tile_set'")}`);
   console.log(`  documents    ${await q("select count(*) n from documents where collection_id = $1")}`);
   console.log(`  flagged      ${await q("select count(*) n from items where collection_id = $1 and admin_notes is not null")}`);
   console.log(`  withdrawn    ${await q("select count(*) n from items where collection_id = $1 and source_removed_at is not null")}`);

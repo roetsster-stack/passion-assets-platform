@@ -12,6 +12,9 @@ import type { Picture, Rendition } from "./types";
 
 export const imageAddress = (r: Pick<Rendition, "id">) => `/i/${r.id}`;
 
+/** One tile of a set, through the tile door. */
+export const tileAddress = (setId: string, level: number, x: number, y: number) => `/t/${setId}/${level}/${x}_${y}`;
+
 const longSideOf = (r: Rendition) => Math.max(r.width, r.height);
 
 export function rungsFor(picture: Picture, format: Rendition["format"], saveData: boolean): Rendition[] {

@@ -1,5 +1,6 @@
 import { isImageId } from "@/lib/images/door";
-import type { Picture, Rendition, Work } from "./types";
+import { pyramid } from "@/lib/images/pyramid";
+import type { Picture, Rendition, TileSet, Work } from "./types";
 
 /**
  * From database rows to the gallery's shape. The select below names every column the gallery
@@ -25,7 +26,7 @@ export const WORK_COLUMNS = [
   "artists(display_name)",
 ].join(", ");
 
-export const PICTURE_COLUMNS = "item_id, width, height, placeholder, renditions";
+export const PICTURE_COLUMNS = "item_id, width, height, placeholder, renditions, tile_set";
 
 export type WorkRow = {
   id: string;
@@ -48,7 +49,15 @@ export type PictureRow = {
   height: number | null;
   placeholder: string | null;
   renditions: { id: string; format: string; width: number; height: number; long_side?: number }[] | null;
+  tile_set?: { id: string; width: number; height: number; tile_size: number; tile_overlap: number; levels: number } | null;
 };
+
+/** A tile set the glass can open: a real id, a size, and a level count the pyramid rule agrees with. */
+export function toTileSet(t: PictureRow["tile_set"]): TileSet | null {
+  if (!t || !isImageId(t.id) || !(t.width > 0) || !(t.height > 0) || !(t.tile_size > 0) || !(t.tile_overlap >= 0) || !(t.levels > 0)) return null;
+  if (pyramid(t.width, t.height, t.tile_size, t.tile_overlap).levels !== t.levels) return null;
+  return { id: t.id, width: t.width, height: t.height, tileSize: t.tile_size, tileOverlap: t.tile_overlap, levels: t.levels };
+}
 
 const STAND_IN = /^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/;
 
@@ -64,6 +73,7 @@ export function toPicture(row: PictureRow | null | undefined): Picture | null {
     height: row.height,
     placeholder: row.placeholder && STAND_IN.test(row.placeholder) ? row.placeholder : null,
     renditions,
+    tileSet: toTileSet(row.tile_set),
   };
 }
 

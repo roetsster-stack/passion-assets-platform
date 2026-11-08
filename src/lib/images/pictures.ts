@@ -1,16 +1,21 @@
 /**
- * The register's side of the ladder, shared by `npm run ingest` and `npm run masters` so the two
- * commands always agree: cut a source's renditions into the renditions bucket, and move each
- * work's picture (`is_hero`) to its best source. Both are idempotent — a second run writes nothing.
+ * The register's side of the ladder and the tiles, shared by `npm run ingest` and `npm run masters`
+ * so the two commands always agree: cut a source's renditions into the renditions bucket, move each
+ * work's picture (`is_hero`) to its best source, and cut the tile pyramid for every picture source
+ * large enough for the glass. All idempotent — a second run writes nothing.
  *
  * The order matters: the ladder is cut first, and only then does the picture move. A master whose
  * file will not cut — or whose cut was interrupted — never becomes the picture; the Airtable
- * photograph stays until the master's ladder is whole.
+ * photograph stays until the master's ladder is whole. Tiles come last, for whatever hangs.
  */
 import { createHash } from "node:crypto";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import type { Client } from "pg";
 import type { ObjectStore } from "../ingest/storage";
 import { FORMATS, ladderFor } from "./ladder";
+import { allTiles, needsTiles, pyramid, TILE_OVERLAP, TILE_SIZE, tileKey, TILES_MIN_LONG_SIDE } from "./pyramid";
 import type { Renderer } from "./render";
 import { bestSource, type Source } from "./sources";
 
@@ -32,6 +37,11 @@ const EXT = { avif: "avif", jpeg: "jpg" } as const;
 
 export function renditionKey(s: Pick<SourceToCut, "collection_id" | "item_id" | "id">, longSide: number, format: keyof typeof EXT): string {
   return `collections/${s.collection_id}/items/${s.item_id}/renditions/${s.id}/${longSide}.${EXT[format]}`;
+}
+
+/** Where a source's tiles live: `<prefix>/<level>/<x>_<y>.jpg`. */
+export function tilePrefix(s: Pick<SourceToCut, "collection_id" | "item_id" | "id">): string {
+  return `collections/${s.collection_id}/items/${s.item_id}/tiles/${s.id}`;
 }
 
 /** How many renditions a whole ladder has for a source of this size: every rung in every format. */
@@ -180,19 +190,134 @@ export async function settleHeroes(db: Client, collectionId: string): Promise<nu
   return moved;
 }
 
-export type PictureTally = { withMaster: number; onSnapshot: number; withoutPicture: number };
+export type PictureTally = { withMaster: number; onSnapshot: number; withoutPicture: number; withGlass: number };
 
-/** How the works still in the register hang: their master, the Airtable snapshot, or nothing yet. */
+/** How the works still in the register hang: their master, the Airtable snapshot, or nothing yet — and how many open into the glass. */
 export async function pictureTally(db: Client, collectionId: string): Promise<PictureTally> {
-  const res = await db.query<{ with_master: string; on_snapshot: string; without: string }>(
+  const res = await db.query<{ with_master: string; on_snapshot: string; without: string; with_glass: string }>(
     `select
        count(*) filter (where h.kind = 'master') as with_master,
        count(*) filter (where h.kind = 'lowres_airtable') as on_snapshot,
-       count(*) filter (where h.id is null) as without
+       count(*) filter (where h.id is null) as without,
+       count(*) filter (where exists (select 1 from images t where t.derived_from_image_id = h.id and t.kind = 'tile_set')) as with_glass
      from items i left join images h on h.item_id = i.id and h.is_hero
      where i.collection_id = $1 and i.source_removed_at is null`,
     [collectionId],
   );
   const r = res.rows[0];
-  return { withMaster: Number(r.with_master), onSnapshot: Number(r.on_snapshot), withoutPicture: Number(r.without) };
+  return { withMaster: Number(r.with_master), onSnapshot: Number(r.on_snapshot), withoutPicture: Number(r.without), withGlass: Number(r.with_glass) };
+}
+
+// ---------------------------------------------------------------------------------------------
+// The tiles
+
+export type TileSource = SourceToCut & { width: number; height: number; label: string };
+
+/**
+ * The picture sources large enough for the glass: each work's picture — master or Airtable
+ * photograph, whichever hangs — when it is 4,000 px or more on its long side.
+ */
+export async function tileSources(db: Client, collectionId: string): Promise<TileSource[]> {
+  const res = await db.query<SourceToCut & { width: number; height: number; title: string | null; artist: string | null }>(
+    `select ${SOURCE_COLUMNS.map((c) => `m.${c}`).join(", ")}, m.width, m.height, i.title, a.display_name as artist
+     from images m join items i on i.id = m.item_id left join artists a on a.id = i.artist_id
+     where m.collection_id = $1 and m.is_hero and m.kind in ('master', 'lowres_airtable')
+       and m.long_side >= ${TILES_MIN_LONG_SIDE} and m.width is not null and m.height is not null
+       and i.source_removed_at is null
+     order by a.display_name, i.title`,
+    [collectionId],
+  );
+  return res.rows.filter((r) => needsTiles(r.long_side)).map((r) => ({ ...r, label: [r.artist, r.title].filter(Boolean).join(", ") || r.item_id }));
+}
+
+/**
+ * Cuts one source's pyramid into the renditions bucket and records it as one tile_set row —
+ * unless the row is already there. The row is written last, after every tile, so a run cut short
+ * leaves no set that is not whole; the next run cuts it again (tiles already in the bucket stay).
+ */
+export async function cutTileSet(
+  db: Client,
+  store: ObjectStore,
+  renderer: Renderer,
+  bucket: string,
+  source: TileSource,
+  counts: LadderCounts,
+): Promise<boolean> {
+  const have = await db.query("select 1 from images where derived_from_image_id = $1 and kind = 'tile_set'", [source.id]);
+  if (have.rowCount) {
+    counts.unchanged++;
+    return false;
+  }
+  const dir = mkdtempSync(path.join(tmpdir(), "curator-tiles-"));
+  try {
+    const input = await store.get(source.storage_bucket, source.storage_key);
+    const cut = await renderer.tiles(input, dir);
+    const p = pyramid(cut.width, cut.height);
+    const levelsOnDisk = readdirSync(cut.filesDir).filter((n) => /^\d+$/.test(n)).length;
+    if (levelsOnDisk !== p.levels) throw new Error(`the pyramid on disk has ${levelsOnDisk} levels; the rule says ${p.levels}`);
+    const prefix = tilePrefix(source);
+    const tiles = allTiles(p);
+    // Every tile must be on disk before any is stored: a set is whole or it is nothing.
+    const files = tiles.map((t) => {
+      const file = [".jpeg", ".jpg"].map((e) => path.join(cut.filesDir, String(t.level), `${t.x}_${t.y}${e}`)).find(existsSync);
+      if (!file) throw new Error(`tile ${t.level}/${t.x}_${t.y} was not cut`);
+      return file;
+    });
+    let bytes = 0;
+    // A pyramid is hundreds of small objects; a few in flight at once, or a set takes minutes from Workshop.
+    await inParallel(tiles, TILE_UPLOADS_IN_FLIGHT, async (t, i) => {
+      const body = readFileSync(files[i]);
+      await store.putIfAbsent(bucket, tileKey(prefix, t), body, "image/jpeg");
+      bytes += body.length;
+    });
+    await db.query(
+      `insert into images (collection_id, item_id, kind, storage_bucket, storage_key, content_type, bytes, width, height, long_side, source, derived_from_image_id, tile_size, tile_overlap, levels, is_hero, sort_order)
+       values ($1, $2, 'tile_set', $3, $4, 'image/jpeg', $5, $6, $7, $8, 'tiles', $9, $10, $11, $12, false, 0)
+       on conflict do nothing`,
+      [source.collection_id, source.item_id, bucket, prefix, bytes, cut.width, cut.height, Math.max(cut.width, cut.height), source.id, TILE_SIZE, TILE_OVERLAP, p.levels],
+    );
+    counts.created++;
+    return true;
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+const TILE_UPLOADS_IN_FLIGHT = 8;
+
+async function inParallel<T>(items: T[], limit: number, fn: (item: T, index: number) => Promise<void>): Promise<void> {
+  let next = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (next < items.length) {
+      const i = next++;
+      await fn(items[i], i);
+    }
+  });
+  await Promise.all(workers);
+}
+
+export type TileSetsCut = { counts: LadderCounts; errors: LadderError[]; cut: { label: string; longSide: number; levels: number }[] };
+
+/** Cuts the pyramid for every picture source large enough; a source that will not cut is reported and the run goes on. */
+export async function cutTileSets(
+  db: Client,
+  store: ObjectStore,
+  renderer: Renderer,
+  bucket: string,
+  collectionId: string,
+  log: (m: string) => void = () => {},
+): Promise<TileSetsCut> {
+  const result: TileSetsCut = { counts: { created: 0, unchanged: 0 }, errors: [], cut: [] };
+  for (const s of await tileSources(db, collectionId)) {
+    try {
+      if (await cutTileSet(db, store, renderer, bucket, s, result.counts)) {
+        const p = pyramid(s.width, s.height);
+        result.cut.push({ label: s.label, longSide: Math.max(s.width, s.height), levels: p.levels });
+        log(`glass: ${s.label} — ${Math.max(s.width, s.height)} px, ${p.levels} levels`);
+      }
+    } catch (err) {
+      result.errors.push({ imageId: s.id, error: err instanceof Error ? err.message : String(err) });
+    }
+  }
+  return result;
 }

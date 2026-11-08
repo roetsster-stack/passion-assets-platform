@@ -4,16 +4,18 @@ import { notFound } from "next/navigation";
 import { loadProvenance, loadWorks } from "@/lib/gallery/load";
 import { neighbours } from "@/lib/gallery/order";
 import { isSaveData } from "@/lib/gallery/picture";
-import { acquisitionLine, tombstoneDetail, yearOf } from "@/lib/gallery/tombstone";
+import { acquisitionLine, tombstoneDetail, tombstoneLine, yearOf } from "@/lib/gallery/tombstone";
 import { isImageId } from "@/lib/images/door";
 import { Plate } from "../../_gallery/Plate";
+import { Glass } from "./Glass";
 import { WalkKeys } from "./WalkKeys";
 
 /**
  * The single work (M1-03): alone on the screen, as large as its photograph allows, its tombstone
  * beneath; then one line about how it came; then its provenance, as entered, in order. The arrows
  * walk the collection in the wall's order; Escape — or the quiet word in the corner — returns to
- * the wall at the same place. Nothing here says what a work is worth, or where it is.
+ * the wall at the same place. Where a tile set exists the picture opens into the glass (M1-02b).
+ * Nothing here says what a work is worth, or where it is.
  */
 
 export const dynamic = "force-dynamic";
@@ -44,7 +46,9 @@ export default async function SingleWork({ params }: { params: Promise<{ id: str
 
       <figure className="flex flex-col items-center">
         <div className="flex h-[88svh] w-full items-center justify-center px-[4vw] pt-[5vh]">
-          <Plate work={work} place="stage" priority saveData={isSaveData(h.get("save-data"))} />
+          <Glass tileSet={work.picture?.tileSet ?? null} line={tombstoneLine(work)}>
+            <Plate work={work} place="stage" priority saveData={isSaveData(h.get("save-data"))} />
+          </Glass>
         </div>
         <figcaption className="mt-10 flex w-full max-w-xl flex-col items-center px-6 text-center">
           {work.artist && <p className="text-lg text-ink">{work.artist}</p>}
