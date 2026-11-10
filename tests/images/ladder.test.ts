@@ -85,6 +85,7 @@ describe("how the page asks for a picture", () => {
     height: 3583,
     placeholder: "data:image/jpeg;base64,AAAA",
     renditions: [r(1, "jpeg", 480, 320), r(2, "jpeg", 1080, 720), r(3, "jpeg", 2160, 1440), r(4, "jpeg", 4320, 2880), r(5, "avif", 480, 320), r(6, "avif", 1080, 720), r(7, "avif", 2160, 1440), r(8, "avif", 4320, 2880)],
+    tileSet: null,
   };
 
   it("every rung, through the image door, with its true width", () => {

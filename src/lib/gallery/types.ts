@@ -13,6 +13,16 @@ export type Rendition = {
   height: number;
 };
 
+/** The pyramid cut from the picture's source, for the glass; the tile door decides each tile. */
+export type TileSet = {
+  id: string;
+  width: number;
+  height: number;
+  tileSize: number;
+  tileOverlap: number;
+  levels: number;
+};
+
 /**
  * A work's picture: the size of its best source (a master, else the Airtable photograph), the
  * 24 px stand-in drawn before any file arrives, and the renditions cut from it. Never the
@@ -24,6 +34,8 @@ export type Picture = {
   /** A data URI (~600 bytes), in the HTML itself. */
   placeholder: string | null;
   renditions: Rendition[];
+  /** Null for most works: only a source of 4,000 px or more has one, and only then is there a glass. */
+  tileSet: TileSet | null;
 };
 
 export type Work = {

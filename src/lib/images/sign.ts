@@ -4,12 +4,12 @@ import { parseR2Jurisdiction, r2Endpoint } from "@/lib/ingest/storage";
 import { SIGNED_URL_SECONDS } from "./door";
 
 /**
- * Presigned GETs on R2, for the image door only. The app holds a read-only key (`curator-app-read`);
- * the write key stays on Workshop. Reads env at call time so the build never needs the keys.
+ * Presigned GETs on R2, for the image door and the tile door only. The app holds a read-only key on
+ * the renditions bucket; the write key stays on Workshop. Reads env at call time so the build never needs the keys.
  *
  * R2_JURISDICTION: "eu" or "fedramp" when the buckets were created in that jurisdiction — such a
  * bucket answers only at its jurisdiction's endpoint. The endpoint rule and the parser are the
- * ingest's own (`@/lib/ingest/storage`), so the writer and the door can never disagree.
+ * ingest's own (`@/lib/ingest/storage`), so the writer and the doors can never disagree.
  */
 
 let client: S3Client | null = null;
@@ -30,17 +30,22 @@ function r2(): S3Client {
   return client;
 }
 
-/** A GET address for one object that stops working after five minutes. */
-export async function signImage(bucket: string, key: string, contentType: string | null): Promise<string> {
+/** A GET address for one object that stops working after `seconds`, and that the browser may keep privately for as long. */
+export async function signObject(bucket: string, key: string, contentType: string | null, seconds: number): Promise<string> {
   return getSignedUrl(
     r2(),
     new GetObjectCommand({
       Bucket: bucket,
       Key: key,
-      ResponseCacheControl: `private, max-age=${SIGNED_URL_SECONDS}`,
+      ResponseCacheControl: `private, max-age=${seconds}`,
       ResponseContentDisposition: "inline",
       ...(contentType ? { ResponseContentType: contentType } : {}),
     }),
-    { expiresIn: SIGNED_URL_SECONDS },
+    { expiresIn: seconds },
   );
+}
+
+/** A GET address for one picture that stops working after five minutes. */
+export function signImage(bucket: string, key: string, contentType: string | null): Promise<string> {
+  return signObject(bucket, key, contentType, SIGNED_URL_SECONDS);
 }

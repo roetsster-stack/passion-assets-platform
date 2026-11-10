@@ -63,7 +63,16 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  // Everything except Next's own assets and the favicon. There are no public files to exclude:
-  // the register has no public surface.
-  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
+  // Everything except Next's own assets, the favicon — and the tile door. A zoom session asks for
+  // hundreds of tiles; a validation round-trip to Supabase for each would make the glass stutter.
+  // The tile door relies on the database alone: the tile row is read as the person asking, with the
+  // session their cookie carries, and row-level security returns it only to a member who has proven
+  // both factors. Without that, 404 — an image request wants no redirect to the sign-in screen anyway.
+  // What the door does give up is revocation: it trusts the cookie's token until that token expires,
+  // so a session signed out elsewhere can still fetch tiles for up to an hour. Membership and the
+  // second factor are still proven on every tile.
+  // The exemption is the door's own shape — a tile-set id and a tile beneath it — and not the whole
+  // `/t/` prefix, so anything else ever placed there goes through this guard like every other route.
+  // There are no public files to exclude: the register has no public surface.
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|t/[0-9a-f-]{36}/).*)"],
 };

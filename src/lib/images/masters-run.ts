@@ -4,7 +4,8 @@
  * A master is stored once (its key is its SHA-256), write-once, in the masters bucket, as kind
  * `master` — a kind no door serves and no signed-in session can even read. Its ladder is cut; only
  * then does the work's picture move to it, and only if the ladder is whole. The Airtable snapshot
- * keeps its row, no longer the picture — or still the picture, while a master will not cut.
+ * keeps its row, no longer the picture — or still the picture, while a master will not cut. Then
+ * the tiles, for every picture source large enough for the glass.
  * Nothing here deletes a file — not from the folders, not from the source being sorted, not from
  * the bucket.
  */
@@ -14,7 +15,7 @@ import path from "node:path";
 import type { Client } from "pg";
 import type { ObjectStore } from "../ingest/storage";
 import { MARKER, MASTER_TYPES, PICTURE_LIKE, placeFile, planFolders, WORK_FOLDER, type Marker, type MasterWork } from "./masters";
-import { candidateMasterSources, cutLadders, pictureTally, settleHeroes, type LadderCounts, type LadderError, type PictureTally } from "./pictures";
+import { candidateMasterSources, cutLadders, cutTileSets, pictureTally, settleHeroes, type LadderCounts, type LadderError, type PictureTally, type TileSetsCut } from "./pictures";
 import type { Renderer } from "./render";
 
 const README = `masters — one folder per work. Drop the photographer's or gallery's files for a work into its folder.
@@ -220,6 +221,7 @@ export type MastersReport = {
   picturesMoved: number;
   renditions: LadderCounts;
   renditionErrors: LadderError[];
+  tileSets: TileSetsCut;
   pictures: PictureTally;
 };
 
@@ -248,7 +250,8 @@ export async function runMasters(deps: MastersDeps): Promise<MastersReport> {
     picturesMoved: 0,
     renditions: { created: 0, unchanged: 0 },
     renditionErrors: [],
-    pictures: { withMaster: 0, onSnapshot: 0, withoutPicture: 0 },
+    tileSets: { counts: { created: 0, unchanged: 0 }, errors: [], cut: [] },
+    pictures: { withMaster: 0, onSnapshot: 0, withoutPicture: 0, withGlass: 0 },
   };
 
   const items = await db.query<{ id: string; airtable_record_id: string }>(
@@ -308,6 +311,7 @@ export async function runMasters(deps: MastersDeps): Promise<MastersReport> {
   report.renditions = cut.counts;
   report.renditionErrors = cut.errors;
   report.picturesMoved = await settleHeroes(db, collectionId);
+  report.tileSets = await cutTileSets(db, store, renderer, deps.renditionsBucket, collectionId, log);
   report.pictures = await pictureTally(db, collectionId);
   return report;
 }

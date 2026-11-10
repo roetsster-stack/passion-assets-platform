@@ -2,7 +2,7 @@
  * The ingest and the row-level security, against a real Postgres. Runs when TEST_DATABASE_URL is
  * set (CI starts one); skipped otherwise, so `npm test` still passes on a laptop with no database.
  */
-import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { Client } from "pg";
@@ -14,6 +14,7 @@ import { createMemoryStore, type ObjectStore } from "@/lib/ingest/storage";
 import { ladderFor } from "@/lib/images/ladder";
 import { loadMasterWorks, prepareFolders, runMasters } from "@/lib/images/masters-run";
 import { pictureTally, settleHeroes } from "@/lib/images/pictures";
+import { allTiles, pyramid } from "@/lib/images/pyramid";
 import type { Renderer } from "@/lib/images/render";
 import { RULES, collectionRecords, fakeFetch, tables } from "../ingest/fixture";
 
@@ -306,6 +307,16 @@ describe.skipIf(!url)("M1-01 · the record arrives", () => {
           ),
         };
       },
+      async tiles(input, outDir) {
+        // The pyramid as sharp lays it out, one byte per tile.
+        const size = await this.probe(input);
+        const filesDir = path.join(outDir, "set_files");
+        for (const t of allTiles(pyramid(size.width, size.height))) {
+          mkdirSync(path.join(filesDir, String(t.level)), { recursive: true });
+          writeFileSync(path.join(filesDir, String(t.level), `${t.x}_${t.y}.jpeg`), "t");
+        }
+        return { ...size, filesDir };
+      },
     };
     const mem = createMemoryStore();
     const store: ObjectStore = { ...mem, get: async (b, k) => mem.objects.get(`${b}/${k}`)?.body ?? Buffer.from(`snapshot ${k}`) };
@@ -315,7 +326,8 @@ describe.skipIf(!url)("M1-01 · the record arrives", () => {
     const r1 = await runIngest(deps({ store, ladder }));
     expect(r1.renditions).toEqual({ created: 16, unchanged: 0 });
     expect(r1.renditionErrors).toEqual([]);
-    expect(r1.pictures).toEqual({ withMaster: 0, onSnapshot: 2, withoutPicture: 1 });
+    expect(r1.pictures).toEqual({ withMaster: 0, onSnapshot: 2, withoutPicture: 1, withGlass: 0 });
+    expect(r1.tileSets).toEqual({ counts: { created: 0, unchanged: 0 }, errors: [], cut: [] }); // nothing is 4,000 px
     const r2 = await runIngest(deps({ store, ladder }));
     expect(r2.renditions).toEqual({ created: 0, unchanged: 16 });
     expect(r2.picturesMoved).toBe(0);
@@ -342,25 +354,34 @@ describe.skipIf(!url)("M1-01 · the record arrives", () => {
       expect(m1.renditionErrors).toHaveLength(1);
       expect(m1.renditionErrors[0].error).toMatch(/no pixels/);
       expect(m1.picturesMoved).toBe(1); // only the master with a whole ladder becomes a picture
-      expect(m1.pictures).toEqual({ withMaster: 1, onSnapshot: 1, withoutPicture: 1 });
+      // The glass: the 5,375 px master that hangs gets its pyramid; the 4,000 px one that does not hang gets none.
+      expect(m1.tileSets.counts).toEqual({ created: 1, unchanged: 0 });
+      expect(m1.tileSets.errors).toEqual([]);
+      expect(m1.tileSets.cut).toEqual([{ label: expect.stringMatching(/Study in Grey/), longSide: 5375, levels: 14 }]);
+      expect(m1.pictures).toEqual({ withMaster: 1, onSnapshot: 1, withoutPicture: 1, withGlass: 1 });
+      expect([...mem.objects.keys()].filter((k) => /\/tiles\//.test(k))).toHaveLength(481); // every tile of the pyramid, once
+      expect([...mem.objects.keys()].filter((k) => /\/tiles\//.test(k)).every((k) => k.startsWith("test-renditions/"))).toBe(true);
 
       const m2 = await run();
       expect(m2.masters).toEqual({ created: 0, unchanged: 3 });
       expect(m2.renditions).toEqual({ created: 0, unchanged: 8 });
       expect(m2.renditionErrors).toHaveLength(1); // still reported, every run, until the file is replaced
       expect(m2.picturesMoved).toBe(0);
-      expect(m2.pictures).toEqual({ withMaster: 1, onSnapshot: 1, withoutPicture: 1 });
+      expect(m2.tileSets.counts).toEqual({ created: 0, unchanged: 1 });
+      expect(m2.tileSets.cut).toEqual([]);
+      expect(m2.pictures).toEqual({ withMaster: 1, onSnapshot: 1, withoutPicture: 1, withGlass: 1 });
 
       // A ladder cut halfway (a Ctrl-C): the master is no picture until it is whole; the next run completes it.
       const good = (await db.query<{ id: string }>("select id from images where kind = 'master' and is_hero")).rows[0];
       await db.query("delete from images where derived_from_image_id = $1 and long_side = 4320 and format = 'avif'", [good.id]);
       await db.query("update images set placeholder = null where id = $1", [good.id]);
       expect(await settleHeroes(db, cid)).toBe(1);
-      expect(await pictureTally(db, cid)).toEqual({ withMaster: 0, onSnapshot: 2, withoutPicture: 1 });
+      expect(await pictureTally(db, cid)).toEqual({ withMaster: 0, onSnapshot: 2, withoutPicture: 1, withGlass: 0 });
       const m3 = await run();
       expect(m3.renditions).toEqual({ created: 1, unchanged: 7 });
       expect(m3.picturesMoved).toBe(1);
-      expect(m3.pictures).toEqual({ withMaster: 1, onSnapshot: 1, withoutPicture: 1 });
+      expect(m3.tileSets.counts).toEqual({ created: 0, unchanged: 1 });
+      expect(m3.pictures).toEqual({ withMaster: 1, onSnapshot: 1, withoutPicture: 1, withGlass: 1 });
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -383,13 +404,18 @@ describe.skipIf(!url)("M1-01 · the record arrives", () => {
 
     // The picture query a page uses, as the member: the work's picture is the master's ladder —
     // yet no row, no column and no value it returns is the master or points at it.
-    const pictures = await asUser(USER_A, "authenticated", "select item_id, width, height, placeholder, renditions from gallery_pictures");
+    const pictures = await asUser(USER_A, "authenticated", "select item_id, width, height, placeholder, renditions, tile_set from gallery_pictures");
     expect(pictures).toHaveLength(2);
     const fromMaster = pictures.find((p) => p.item_id === master.item_id);
     expect(fromMaster).toMatchObject({ width: 5375, height: 4000, placeholder: "data:image/jpeg;base64,AAAA" });
     expect(fromMaster.renditions).toHaveLength(8);
     const fromSnapshot = pictures.find((p) => p.item_id === broken.item_id);
     expect(fromSnapshot.renditions).toHaveLength(4); // the sculpture's snapshot: 480 and 800, in both formats
+    // M1-02b · the glass: the master's tile set travels with the picture — its own id and shape, nothing of the master.
+    expect(fromMaster.tile_set).toEqual({ id: expect.stringMatching(/^[0-9a-f-]{36}$/), width: 5375, height: 4000, tile_size: 254, tile_overlap: 1, levels: 14 });
+    expect(fromSnapshot.tile_set).toBeNull();
+    const tileSetRow = await db.query<{ kind: string; derived_from_image_id: string; storage_key: string }>("select kind, derived_from_image_id, storage_key from images where id = $1", [fromMaster.tile_set.id]);
+    expect(tileSetRow.rows[0]).toEqual({ kind: "tile_set", derived_from_image_id: master.id, storage_key: expect.stringMatching(/\/tiles\//) });
     const text = JSON.stringify(pictures);
     expect(text).not.toContain(master.id);
     expect(text).not.toContain(broken.id);
@@ -412,5 +438,15 @@ describe.skipIf(!url)("M1-01 · the record arrives", () => {
     expect(await asUser(USER_B, "authenticated", "select * from gallery_pictures")).toHaveLength(0);
     expect(await asUser(USER_A, "authenticated", "select * from gallery_pictures", "aal1")).toHaveLength(0);
     await expect(asUser(null, "anon", "select * from public.gallery_pictures")).rejects.toThrow(/permission denied/);
+
+    // The tile door's own query: the member reads the tile set; a non-member and an aal1 member read zero tile-set rows.
+    const doorQuery = `select kind, storage_bucket, storage_key, width, height, tile_size, tile_overlap, levels from images where id = '${fromMaster.tile_set.id}'`;
+    expect(await asUser(USER_A, "authenticated", doorQuery)).toHaveLength(1);
+    expect(await asUser(USER_B, "authenticated", doorQuery)).toHaveLength(0);
+    expect(await asUser(USER_A, "authenticated", doorQuery, "aal1")).toHaveLength(0);
+    expect(await asUser(USER_B, "authenticated", "select count(*)::int n from images where kind = 'tile_set'")).toEqual([{ n: 0 }]);
+    expect(await asUser(USER_A, "authenticated", "select count(*)::int n from images where kind = 'tile_set'", "aal1")).toEqual([{ n: 0 }]);
+    // and the master's id, asked of the tile door's query, is nothing — to the member too
+    expect(await asUser(USER_A, "authenticated", doorQuery.replace(fromMaster.tile_set.id, master.id))).toHaveLength(0);
   });
 });

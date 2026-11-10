@@ -16,6 +16,7 @@ const pic = (width: number | null, height: number | null): Picture => ({
   height,
   placeholder: null,
   renditions: [{ id: "00000000-0000-4000-8000-000000000001", format: "jpeg", width: width ?? 480, height: height ?? 480 }],
+  tileSet: null,
 });
 
 function work(id: string, over: Partial<Work> = {}): Work {
@@ -192,6 +193,7 @@ describe("what a row may carry onto a page", () => {
         { id: R1, format: "jpeg", width: 480, height: 320 },
         { id: R2, format: "avif", width: 480, height: 320 },
       ],
+      tileSet: null,
     });
     const text = JSON.stringify(w.picture);
     for (const leak of ["curator-masters", "collections/", "storage", "i-master", "sha"]) expect(text).not.toContain(leak);
@@ -204,6 +206,19 @@ describe("what a row may carry onto a page", () => {
     expect(toPicture({ ...picRow, renditions: [{ id: "../i-master", format: "jpeg", width: 480, height: 320 }] })).toBeNull();
     expect(toPicture({ ...picRow, placeholder: 'x"); background:url(https://elsewhere' })?.placeholder).toBeNull();
     expect(toWork(row).picture).toBeNull();
+  });
+
+  it("a tile set travels only whole: a real id, a size, and the level count the pyramid rule gives", () => {
+    const T = "22222222-0000-4000-8000-000000000001";
+    const tile_set = { id: T, width: 5375, height: 4000, tile_size: 254, tile_overlap: 1, levels: 14 };
+    expect(toPicture({ ...picRow, tile_set })?.tileSet).toEqual({ id: T, width: 5375, height: 4000, tileSize: 254, tileOverlap: 1, levels: 14 });
+    expect(toPicture({ ...picRow, tile_set: { ...tile_set, levels: 13 } })?.tileSet).toBeNull();
+    expect(toPicture({ ...picRow, tile_set: { ...tile_set, id: "i-master" } })?.tileSet).toBeNull();
+    expect(toPicture({ ...picRow, tile_set: { ...tile_set, width: 0 } })?.tileSet).toBeNull();
+    expect(toPicture({ ...picRow, tile_set: null })?.tileSet).toBeNull();
+    expect(toPicture(picRow)?.tileSet).toBeNull();
+    // and nothing of the source it was cut from travels with it
+    expect(JSON.stringify(toPicture({ ...picRow, tile_set: { ...tile_set, derived_from_image_id: "i-master", storage_key: "tiles/x" } as typeof tile_set }))).not.toMatch(/i-master|tiles\//);
   });
 
   it("sold is read from the status and nothing else of the status travels", () => {

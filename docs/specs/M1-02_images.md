@@ -268,3 +268,128 @@ One claim in the note above is narrowed, as the review noted: a rendition's own 
 was cut from, by id. That id is not an address — asking the image door for it gets 404, from the database's
 rule and from the door's own — and nothing of the master's address, bucket or fingerprint is readable. The
 page's picture query returns no master id at all.
+
+---
+
+## BUILT — M1-02b (the glass), 8 Nov 2026
+
+**PR note — for Michael.**
+
+**What changed.** On the single work, where the photograph is large enough, the cursor over it becomes a
+glass. Click, press Enter, or pinch, and the work opens full-screen on gallery dark: lean in and the paper's
+tooth, the brush's ridge, the edge of the plate come up, as tiles of the master arrive for the part you are
+looking at — never the whole file. The work's one line appears when you move and fades again. Escape closes
+the glass (so does the quiet word in the corner, for a hand with no keyboard). A work whose photograph is not
+large enough shows nothing new at all: no glass, no control, nothing to disappoint.
+
+Behind it, on Workshop, `npm run masters` and `npm run ingest` now also cut a *tile pyramid* for every work
+whose picture is 4,000 px or more on its long side — the master if it has one, else the Airtable photograph —
+into the renditions bucket: Deep Zoom, 254 px tiles, 1 px overlap, JPEG 85, recorded as one row on the work.
+Below 4,000 px the ladder's 4,320 rung already shows every pixel, so no pyramid is cut. Both commands report
+how many were cut and for which works; a second run cuts nothing.
+
+A new door, `/t/<set>/<level>/<x>_<y>`, hands out each tile: the row decides, as the image door's does — read
+as the person asking, so the database's rules say whether it exists for them — then a signed address that
+dies in thirty minutes (a zoom session lasts). Anything else is 404. This door serves tile sets only; the
+image door still serves renditions only; masters are served by neither. Tiles skip the sign-in check that
+every page goes through (`src/middleware.ts` says so and why): a zoom asks for hundreds, and a round-trip to
+Supabase for each would make the glass stutter. The database alone decides, with the same rule as everything
+else — member, both factors. One thing the door does give up, and it is worth saying plainly: every page asks
+Supabase whether the session is still live, and the tile door does not. It trusts the token the cookie carries
+until that token expires, which the database checks but cannot revoke. So a session signed out somewhere else
+can go on fetching tiles for up to an hour. The plan accepted that for the sake of the glass; everything else
+— membership, both factors, and the refusal of anything that is not a tile — is proven on every single tile.
+The exemption in the middleware is the door's own shape, not the whole `/t/` prefix, so nothing else could
+ever sit there unguarded.
+
+**Why.** The spec's job: "on the single work, the collector can lean in until the paper fibre shows." The
+Rijksstudio anchor — the glass over the Night Watch, the canvas thread.
+
+**What keeps the masters safe.** The pyramid is cut on Workshop from the master's bytes, like the ladder;
+nothing on the web touches a master. The page's picture query now carries the tile set's own id and shape
+and nothing of the master: no address, no id. A database test shows a non-member and a half-signed-in
+member read zero tile-set rows, and that the master is still never returned by the picture query or by the
+tile door's own query — not even to a member.
+
+**Choices made in the build** (say if any is wrong):
+- **OpenSeadragon 5.0.1**, pinned exactly, loaded from the package (no CDN), as the plan says. Version 6.1.1
+  exists; moving to it is one line, for a later PR if the preview gives a reason.
+- **The canvas drawer.** Tiles reach the browser by redirect from another origin (R2), so OpenSeadragon's
+  WebGL drawer could not paint them; the canvas drawer can. No visible difference at this size.
+- **The glass opens from the picture itself** — no button, no icon; the cursor is the only sign. On touch, a
+  pinch on the picture opens it; inside, pinch zooms, drag pans, a double tap zooms in.
+- **A quiet "close"** in the corner, on intent, because a phone has no Escape. The arrows and Escape of the
+  single-work page stand down while the glass is open.
+- **The set is recorded last**, after every tile is stored. A run cut short leaves no half pyramid on the
+  register; the next run cuts it again, and tiles already stored are not stored twice.
+- **The glass may magnify to twice the master's pixels** and no further: the fibre, not the pixels.
+- **One pyramid per picture source.** If a work's picture later moves (a master arrives for a work that had a
+  4,000 px Airtable photograph), the new source gets its own pyramid on the next run; the old one stays in
+  the bucket, unreferenced by the page.
+
+**Tests.** The pyramid rule (levels, tile counts, the Kentridge's 481 tiles; 1 px and 256 px edges); that what
+sharp writes on disk is exactly what the rule names (levels, every tile, 255/256/93 px widths, no metadata);
+the ≥ 4,000 px rule; tile addresses (digits only, inside the pyramid); the tile door's decision (a tile set
+→ sign, a master or anything else → 404, a row that does not describe a whole pyramid → 404); the signed
+address (thirty minutes, private); the picture's tile set travels only whole; against fixtures and Postgres:
+the masters run cuts one pyramid for the 5,375 px master that hangs and none for the 4,000 px one that does
+not, 481 tiles in the renditions bucket, a second run cuts nothing, the view carries the tile set and never
+the master, a non-member and an aal1 member read zero tile-set rows. Lint, typecheck, 117 tests and the build
+pass.
+
+**Before the preview shows the glass — one-time.**
+1. **The migration** (`20261108120000_tile_sets.sql`) applied to the database. It adds the tile set to the
+   page's picture query and two guards on tile-set rows; the site on `main` keeps working after it.
+2. **`npm run masters`** on Workshop — done, see "The run" below. The read-only key the app already holds reads
+   `curator-renditions`, where the tiles live; nothing new in Vercel.
+
+**How to judge the glass on the preview.**
+1. Open the Kentridge *Garibaldi* (`/w/<id>`; it is the test piece). The cursor over the picture should be a
+   magnifying glass. Over any work without a pyramid, the plain arrow, and nothing else different.
+2. Click. The screen should go to gallery dark with the work filling it; the first tiles should arrive within
+   a second on the laptop. Scroll to zoom, drag to pan; the fibre should show at full zoom.
+3. Move the mouse: the work's line appears at the bottom and fades. Escape: back to the single work, where
+   you were. ← and → should do nothing while the glass is open.
+4. On the phone: pinch the picture to open; pinch and drag inside; the word "close" top right.
+5. In the developer tools → Network, during a zoom: requests to `/t/…` each answered 307, then the tile from
+   R2 — no request for the master, no request larger than a tile.
+
+**What to watch for — if it stutters.** Each tile is one hop through the door (a database read and a
+signature) and one fetch from R2. On the laptop this is well under the blend time; on a slow connection, or a
+fast pan across a 5,000 px work, you may see tiles arrive late. If the glass stutters where the ladder does
+not, the plan's fallback is the **signed manifest**: when the single work opens, the server signs every tile
+address of the set once (thirty minutes, as now) and hands OpenSeadragon the list, so no tile goes through the
+door at all — one signing pass, no per-tile hop. It changes the client's `getTileUrl` and adds one server
+read; the door stays for anything else. Decide on the Kentridge and one painting.
+
+**The run — 8 Nov 2026, on Workshop.** First `--from ~/Downloads` placed 10 files (Highriser, Hodgins, two
+Kentridges, Siopis) and could not place 4 (two the title did not decide, two zips). Then the M1-02a run took 82
+masters into the archive (9 more were the same bytes under another name), cut 332 renditions, and 44 works now
+hang their master. Then this branch's run:
+
+```
+masters      created    0  unchanged   91
+renditions   created    0  unchanged  332
+tile sets    created   21  unchanged    0
+works: 44 with a master, 61 on the Airtable snapshot, 2 with no picture yet; 21 open into the glass
+```
+
+The 21: van Zyl *The Waiting Room* (6,000 px) · Ruga *The Night of the Long Knives IV* (4,500) · Murray *King*
+(8,256) · Halter *Kimberly Latrice Jones* (7,360) and *What is Happening in America?* (6,417) · Adams *Hennie se
+kamer tapyt* (7,453) and *Melkbankie* (7,446) · Wa Lehulere *Burnt sunflowers* (7,538) · Subotzky *Johnny
+Fortune* (7,016) · Siopis *Note 4* (4,000) and *Restless Republic: History* (8,747) · Mivekannin *Aprés Valloton*
+(4,054) · Ige *And When Midnight Befell Us* (5,023) · Aggenbach *Fault Lines* (4,540) · Kentridge *Garibaldi*
+(5,375) and *Sleeper Red* (7,846) · Botha *Cloud Study 16* (4,137), *Generic Self-portrait as an Exile* (4,992)
+and *Untitled (Saturn after Rubens)* (4,651) · Blom *1.36 Untitled* (4,613) and *1.9 Untitled* (4,757). The
+other 23 masters are gallery JPEGs under 4,000 px: the ladder shows every pixel they have, and no glass.
+
+Two things to know from the run:
+- **Yiadom-Boakye, *Highriser*** — a 724 MB TIFF, 7,391 × 11,866 px — is in the archive but will not cut: the
+  TIFF reader refuses a 116 MB block in its header (a safety limit in libvips). The work hangs its Airtable
+  photograph meanwhile. Open the file in Preview or Photoshop, save it as a plain TIFF or a JPEG, drop that in
+  `106-Yiadom-Boakye-Highriser`, run `npm run masters` again.
+- **One zip** in `104-WaLehulere-Burnt-sunflowers` is not taken; unpack it into the folder.
+
+**Not done here.** The Content-Security-Policy (its own small PR next, as agreed; the stand-in needs
+`img-src data:` and the glass's inline style a nonce). Choosing among views on screen (M3). A pyramid is cut
+only for the source that hangs.
