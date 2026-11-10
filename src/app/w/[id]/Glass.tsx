@@ -16,11 +16,14 @@ import type { TileSet } from "@/lib/gallery/types";
  * one step of its own. A work without a tile set is given back exactly as it came: no glass, no
  * control, nothing that would disappoint.
  *
- * In the hand: the picture that opens the glass lets the page scroll but never pinch-zoom
- * (`touch-pan-x touch-pan-y`), so the pinch that is the way in cannot also magnify the page under
- * the glass and carry its corners off the screen — which is what an upright phone did. The open
- * glass takes every touch itself (`touch-none`), so the page beneath holds still. Focus goes into
- * the glass as it opens and back to the picture as it closes.
+ * In the hand: the picture that opens the glass lets the page scroll but never magnify — not by the
+ * browser's double tap (`touch-action: manipulation` turns that off in every engine; WebKit keeps it
+ * on under `pan-x pan-y`) and not by its pinch, which is refused as it begins. Otherwise the gesture
+ * that is the way in also magnifies the page under the glass and carries its corners off the screen —
+ * which is what an upright phone did. The open glass takes every touch itself (`touch-none`), so the
+ * page beneath holds still, and it is fitted to what is visible of the page rather than to the layout
+ * viewport, so a page magnified by some other means still shows the whole glass. Focus goes into the
+ * glass as it opens and back to the picture as it closes.
  */
 
 export function Glass({ tileSet, line, children }: { tileSet: TileSet | null; line: string; children: ReactNode }) {
@@ -63,6 +66,26 @@ export function Glass({ tileSet, line, children }: { tileSet: TileSet | null; li
     if (id) forgetStep(window.history, id);
   }, [id]);
 
+  // The browser's pinch on the picture is refused as it begins — two fingers down, or moving — so it
+  // cannot magnify the page while the glass opens. React's own touch handlers are passive and cannot
+  // refuse anything; this one is not. One finger is left alone: that is how the page scrolls.
+  useEffect(() => {
+    const el = opener.current;
+    if (!el) return;
+    const refuse = (e: TouchEvent) => {
+      if (e.touches.length >= 2) e.preventDefault();
+    };
+    const refuseGesture = (e: Event) => e.preventDefault(); // WebKit's own pinch event
+    el.addEventListener("touchstart", refuse, { passive: false });
+    el.addEventListener("touchmove", refuse, { passive: false });
+    el.addEventListener("gesturestart", refuseGesture);
+    return () => {
+      el.removeEventListener("touchstart", refuse);
+      el.removeEventListener("touchmove", refuse);
+      el.removeEventListener("gesturestart", refuseGesture);
+    };
+  }, [id]);
+
   if (!tileSet) return <>{children}</>;
   return (
     <>
@@ -71,7 +94,7 @@ export function Glass({ tileSet, line, children }: { tileSet: TileSet | null; li
         role="button"
         tabIndex={0}
         aria-label={`Open the glass: ${line}`}
-        className="flex h-full w-full cursor-zoom-in touch-pan-x touch-pan-y items-center justify-center outline-none focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-8 focus-visible:outline-ink-faint"
+        className="flex h-full w-full cursor-zoom-in touch-manipulation items-center justify-center outline-none focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-8 focus-visible:outline-ink-faint"
         onClick={openGlass}
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " ") {
@@ -145,15 +168,25 @@ function Viewer({ tileSet, line, onClose, opener }: { tileSet: TileSet; line: st
         minZoomImageRatio: 0.9,
         maxZoomPixelRatio: 2,
         animationTime: 0.6,
-        blendTime: 0.25,
+        // The soft arrival: a sharper tile comes into focus over the softer level beneath it.
+        blendTime: 0.9,
         gestureSettingsMouse: { clickToZoom: true, dblClickToZoom: false, scrollToZoom: true, flickEnabled: true },
         gestureSettingsTouch: { pinchToZoom: true, flickEnabled: true, clickToZoom: false, dblClickToZoom: true },
       });
       viewer = v;
       // A hand on the glass brings the way out back, whether or not the touch reaches the dialog.
       for (const event of HAND_ON_GLASS) v.addHandler(event, show);
-      // Turning the phone: OpenSeadragon keeps the place and the scale. A work shown whole is fitted
-      // to the new shape again; a place being looked at is kept, inside the work's edges.
+      let hand = false;
+      v.addHandler("canvas-press", () => {
+        hand = true;
+      });
+      v.addHandler("canvas-release", () => {
+        hand = false;
+      });
+      // The glass changing shape — the phone turned, a browser toolbar sliding away: OpenSeadragon keeps
+      // the place and the scale. A work shown whole is fitted to the new shape again; a place being
+      // looked at is kept, inside the work's edges. With a hand on the glass nothing is forced: the
+      // viewer settles the view itself when the hand lifts, and a drag is not fought mid-gesture.
       let whole = true;
       let turning = false;
       const wholeNow = () => afterTurn(v.viewport.getZoom(), v.viewport.getHomeZoom()) === "fit";
@@ -164,7 +197,7 @@ function Viewer({ tileSet, line, onClose, opener }: { tileSet: TileSet; line: st
         turning = true;
         requestAnimationFrame(() => {
           turning = false;
-          if (gone) return;
+          if (gone || hand) return;
           if (whole) v.viewport.goHome(true);
           else v.viewport.applyConstraints(true);
           whole = wholeNow();
@@ -194,6 +227,29 @@ function Viewer({ tileSet, line, onClose, opener }: { tileSet: TileSet; line: st
     root.current?.focus({ preventScroll: true });
     return () => picture?.focus({ preventScroll: true });
   }, [opener]);
+
+  // The glass is fitted to what is visible of the page — the visual viewport — not to the layout
+  // viewport. On a page the browser has magnified (a double tap, a pinch it let through) the two
+  // differ, and a glass the size of the layout viewport has its corners, the word among them, off the
+  // screen. Where the browser cannot say what is visible, the glass stays the layout viewport (inset-0).
+  useEffect(() => {
+    const visible = window.visualViewport;
+    const el = root.current;
+    if (!visible || !el) return;
+    const fit = () => {
+      el.style.left = `${visible.offsetLeft}px`;
+      el.style.top = `${visible.offsetTop}px`;
+      el.style.width = `${visible.width}px`;
+      el.style.height = `${visible.height}px`;
+    };
+    fit();
+    visible.addEventListener("resize", fit);
+    visible.addEventListener("scroll", fit);
+    return () => {
+      visible.removeEventListener("resize", fit);
+      visible.removeEventListener("scroll", fit);
+    };
+  }, []);
 
   const quiet = `transition-opacity duration-500 ${shown ? "opacity-100" : "opacity-0"}`;
   return (
