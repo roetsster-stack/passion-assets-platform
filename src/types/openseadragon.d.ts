@@ -20,7 +20,19 @@ declare module "openseadragon" {
     [option: string]: unknown;
   };
 
+  export interface Viewport {
+    /** The zoom now (`current`) or where the animation is heading; 1 = the work's width fills the viewer. */
+    getZoom(current?: boolean): number;
+    /** The zoom at which the whole work fits the viewer as it is now shaped. */
+    getHomeZoom(): number;
+    /** Fit the whole work again. */
+    goHome(immediately?: boolean): void;
+    /** Bring the view back inside the work's edges and the zoom limits. */
+    applyConstraints(immediately?: boolean): void;
+  }
+
   export interface Viewer {
+    viewport: Viewport;
     destroy(): void;
     addHandler(event: string, handler: (event: unknown) => void): void;
   }

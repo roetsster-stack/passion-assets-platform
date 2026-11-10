@@ -94,3 +94,104 @@ always; you judge on your phone, upright, on the preview. Then the CSP PR.
 
 **Approved — 10 Nov 2026, 11:07.** Michael: "Go." The three trade-offs stand as proposed: the way out appears
 on open and on every touch, then fades; an upright phone shows a landscape work whole; Back closes the glass.
+
+## BUILT — M1-02c (the glass in the hand), 10 Nov 2026
+
+**PR note — for Michael.**
+
+**What was found, and how.** The plan said find the cause before touching the code, on a phone. I have no
+phone on Workshop, so the first half was done the next best way: the real glass — the component as it is on
+`main`, the real OpenSeadragon, the app's own stylesheet — put on a page shaped like the single work and
+driven in Chrome 157 with its phone emulation (390 × 844, touch), with a synthesised pinch on the picture, and
+a labelled 5,375 × 4,000 stand-in cut into the same pyramid as the *Garibaldi*, so a screenshot says which
+edge is in view. Then the same script against the fix. The second half — your phone, upright, on the preview
+— is yours, and the note below says what to look for. Of the three suspects:
+
+1. **Real — the page magnified under the glass.** A pinch on the picture opened the glass *and* was the
+   browser's own zoom. The page went to 2.5×; the visible window was 156 × 338 of the 390 × 844 screen; the
+   word *close* lay outside it. The glass pans the work across the whole magnified page, so the far edge
+   stopped at a place that was not on the screen — "it wouldn't go any further" — and nothing you could touch
+   would move the window, because the glass takes every touch. Turning the phone re-fits the page, which is
+   why sideways cured it.
+2. **Not real — the way out did hear the touch.** A touch on the glass reached the dialog and brought the word
+   back; it was invisible only because it was off the magnified screen. The word now also takes its cue from
+   the viewer's own events, as the plan said, so a browser that handles touches differently (I could not run
+   Safari here) is covered too.
+3. **Not real — the pan constraint.** Zoomed in 4.3× with the page unmagnified, dragging reached the bottom
+   edge exactly: the view's bottom and the work's bottom agree to four decimals, the edge drawn on the last
+   row of the screen. Left alone.
+
+Measured on the way, and fixed with the rest: the phone's Back took the whole page away rather than closing
+the glass; focus never moved into the glass; the word's target was 47 × 17 px; turning the phone with the
+whole work showing left it at 0.46 of the fit instead of fitting it again (the viewer keeps a picture's size
+in pixels across a turn — right for a place being looked at, wrong for a work shown whole).
+
+**What changed** — one component, one small module of logic, its tests. Nothing on the server, nothing in
+the database, no new dependency.
+- The picture that opens the glass tells the browser: scroll as usual, never pinch-zoom (`touch-action:
+  pan-x pan-y`). The open glass takes every touch itself (`touch-action: none`), so the page beneath holds
+  still — on iPhone too, where hiding the page's scrollbar alone was never enough.
+- The way out shows as the glass opens, on every device, and at every touch — the dialog's own and the
+  viewer's (press, drag, pinch, release) — then fades after 2.2 s as before. The word sits where it did; the
+  target around it is now 79 × 44 px, a thumb's, and keeps clear of the notch and the home bar on phones
+  that report them.
+- Opening takes one step in the phone's history; Back takes it away and that closes the glass, leaving you on
+  the single work. Closing by the word or by Escape takes the same step away, so a Back afterwards is the
+  page's own. Next's router keeps its own marks on the entry, so Forward never reloads. A page reloaded while
+  the glass was open arrives on the glass's step with the glass shut; the mark is forgotten on arrival.
+- Focus moves into the glass as it opens and back to the picture as it closes.
+- Turning the phone: a work being shown whole is fitted to the new shape again; a place being looked at is
+  kept, inside the work's edges.
+
+**After the fix, the same script:** the pinch on the picture opens the glass with the page at 1×, the page
+not scrolled, the word on screen; the drag reaches the bottom edge on the last row of the screen; the word
+fades and a touch brings it back; Back closes the glass and the address is still the single work; Escape
+closes it, the page is where it was, focus is on the picture; the phone turned with the whole work showing
+shows the whole work again (zoom equals the fit, where before it was 0.46 of it); turned while zoomed in, the
+centre of the view is the same point of the work to three decimals.
+
+**The three trade-offs, as approved.** The way out appears, then fades — one rule on every device. An
+upright phone shows a landscape work whole, dark above and below. Back closes the glass — it came out clean,
+so it is in.
+
+**Choices made in the build** (say if any is wrong):
+- `pan-x pan-y` rather than `none` on the picture: the picture is most of the first screen, and a thumb must
+  still be able to scroll the page by it. `none` goes on the open glass, where there is nothing to scroll.
+- The pinch that opens the glass does not carry on into the viewer: the fingers that opened it stay with the
+  picture until they lift. The glass opens whole; the next pinch goes in. That is the "whole" trade-off.
+- Nothing is done about a page that was *already* magnified before the picture was touched (a pinch on the
+  caption, say): the glass would then open on a magnified page, as before. The fix is at the picture, where
+  the pinch that is the way in happens; a page pinched elsewhere is pinched out by the collector.
+- The viewer's "a single click zooms in" stays as left after the judging.
+- The pieces that are logic — the history step, the cue list, the rule for a turn — live in
+  `src/lib/gallery/glass.ts` so they can be proved in the test runner; the component stays the one file it was.
+
+**Tests** — `tests/gallery/glass.test.ts`, ten, with a browser history in miniature decorated the way Next
+decorates it: opening adds one step above the page's own and keeps the router's marks; Back lands on the
+page's own and that closes the glass; closing by the word takes the step away; a glass that Back has already
+closed never sends the page back a second time; a pop that lands on the glass's own step does not close it
+(React's development double mount); a page reloaded while the glass was open forgets the step it arrived on;
+only the glass's own mark counts; the cue list and the 2.2 s; a turn re-fits a whole work and keeps a place.
+What is CSS or the browser's own touch handling was measured in the harness above and is judged on the phone.
+Lint, typecheck, test (115, plus the eleven database tests when a local Postgres is given) and build pass.
+
+**How to judge on the preview — your phone, upright, the *Garibaldi*, nobody telling you where anything is.**
+1. Pinch on the picture. The glass opens with the whole work, dark above and below; the page behind does not
+   magnify; the word *close* and the line are there for a moment, then gone.
+2. Pinch in, drag to the horseman's hoof at the bottom edge. The picture stops exactly there — no bounce, no
+   fight, nothing cut off. The same at the top and both sides.
+3. Touch the screen. *Close* is back in the corner, big enough for a thumb. Leave it; it fades.
+4. Swipe back (or press Back). You are on the single work, where you started — not on the wall.
+5. Open again; turn the phone sideways. The work settles into the new shape, whole. Pinch in, turn it back:
+   the place you were looking at is still under your finger.
+6. Open again; touch *close*. Now press Back: it should take you to the wall, as if the glass had never been
+   opened.
+7. On the laptop, nothing changes but one thing: the word shows itself for a moment when the glass opens.
+   Tab to the picture, Enter, Tab once to *close*, Escape — focus is back on the picture.
+If you hunt for the word even once, say so: always-there on touch screens is a one-line change.
+
+**Not done here.** The Content-Security-Policy and the door's bucket check (next PR, as agreed). Tile size and
+the signed manifest (parked in M1-02 § JUDGED). Making the page beneath inert to a screen reader while the
+glass is open (the dialog is marked modal; the glass is a child of the page, so `inert` would need a portal).
+Fitting the glass to a page that was magnified before it opened. Forward re-opening the glass. Safari was not
+run here; iOS has honoured `touch-action` since iOS 13.
