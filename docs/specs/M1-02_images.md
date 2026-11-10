@@ -393,3 +393,39 @@ Two things to know from the run:
 **Not done here.** The Content-Security-Policy (its own small PR next, as agreed; the stand-in needs
 `img-src data:` and the glass's inline style a nonce). Choosing among views on screen (M3). A pyramid is cut
 only for the source that hangs.
+
+## JUDGED — M1-02b, 10 Nov 2026
+
+Michael judged the glass on the preview, on the Kentridge *Garibaldi*: "it works really well, I'm more than
+pleased." Merged as #7 (`c1651ef`), tagged `v0.5.0-m1-02b`. Three findings came out of the judging.
+
+**The stutter is accepted, and the signed manifest stays parked.** On a fast line and 5G the wait to sharpen
+is about a second. Rather than rule from best-case conditions, he ran the glass under Chrome's throttling:
+
+| | requests | transferred | each 307 | each tile |
+|---|---|---|---|---|
+| Fast 4G | 494 | 4.1 MB | 226–295 ms | 5–26 kB, 8.4–9.3 s to settle |
+| Slow 4G | 882 | 5.2 MB | ~571 ms | 4.8–11 kB, 0.6–1.1 s |
+
+What the numbers say: **bandwidth, not the extra hop, is the ceiling** — a single zoom session moves 4–5 MB.
+The door's redirect is a real fixed cost on a slow link (~570 ms before a tile's bytes begin) but it is not
+the main story, and the 29-minute redirect cache does visible work (re-panned ground returns from disk in
+1 ms). The manifest would remove the redirect and none of the megabytes, so it is **parked with evidence**,
+not retired: build it only if a later surface is latency-bound rather than bandwidth-bound.
+
+**A cheaper lever, for a later tuning spec.** At 254 px a zoom session asks for hundreds of tiles, each one a
+redirect plus a fetch. Cutting at 512 px would quarter the request count for the same pixels and compress
+slightly better; re-cutting costs nothing but a masters run. Not now — it changes every pyramid — but it is
+the first thing to try if the glass ever needs to be faster. The structural lever behind it is distance:
+tiles are served from Europe to a collector in Johannesburg, which costs more than any hop we control.
+
+**One fault, on the phone, and it is a fault rather than taste.** A landscape work on an upright phone cannot
+be panned to its bottom edge — the view fights and snaps back — and the close word is not findable, leaving
+no visible way out on the one surface with no Escape key. Turning the phone sideways makes it right. Two
+causes are likely, both small: `visibilityRatio: 1` with `constrainDuringPan` asks the viewer never to show
+empty space, which a wide work in a tall viewport cannot satisfy; and the close word and caption appear only
+on a pointer move or touch the dialog sees, which OpenSeadragon's own touch handling can swallow. **Its own
+PR, next, with its own cold review** — not a quiet patch on a branch already checked. The fix should also
+show the way out briefly whenever the glass opens, on every device.
+
+**Left as built:** a single click inside the glass zooms in (undocumented in the note, tried and liked).
