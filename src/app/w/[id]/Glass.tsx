@@ -2,7 +2,7 @@
 
 import type { Viewer as OsdViewer } from "openseadragon";
 import { useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
-import { afterTurn, DWELL_MS, forgetStep, HAND_ON_GLASS, leaveStep, popClosesGlass, takeStep } from "@/lib/gallery/glass";
+import { afterTurn, cue, forgetStep, HAND_ON_GLASS, isLive, isShown, leaveStep, popClosesGlass, takeStep, type WayOut } from "@/lib/gallery/glass";
 import { tileAddress } from "@/lib/gallery/picture";
 import type { TileSet } from "@/lib/gallery/types";
 
@@ -11,10 +11,10 @@ import type { TileSet } from "@/lib/gallery/types";
  * picture becomes a glass; a click, Enter, or a pinch opens the work full-screen on gallery dark,
  * where OpenSeadragon streams tiles of the master for the part being looked at — never the whole
  * file. The way out — the quiet word in the corner, with the work's one line — shows as the glass
- * opens and at every touch, then fades. Escape closes; so does the word, for a hand with no
- * keyboard; so does the phone's Back, for which the glass takes one step of its own. A work
- * without a tile set is given back exactly as it came: no glass, no control, nothing that would
- * disappoint.
+ * opens and at every touch, then fades; a hand may take it only once it can be seen. Escape closes;
+ * so does the word, for a hand with no keyboard; so does the phone's Back, for which the glass takes
+ * one step of its own. A work without a tile set is given back exactly as it came: no glass, no
+ * control, nothing that would disappoint.
  *
  * In the hand: the picture that opens the glass lets the page scroll but never pinch-zoom
  * (`touch-pan-x touch-pan-y`), so the pinch that is the way in cannot also magnify the page under
@@ -26,12 +26,43 @@ import type { TileSet } from "@/lib/gallery/types";
 export function Glass({ tileSet, line, children }: { tileSet: TileSet | null; line: string; children: ReactNode }) {
   const [open, setOpen] = useState(false);
   const opener = useRef<HTMLDivElement>(null);
-  const close = useCallback(() => setOpen(false), []);
   const id = tileSet?.id ?? null;
-  // A page reloaded while the glass was open arrives on the glass's step, shut: the step is forgotten.
+
+  // The step in the history is taken and left here, in the hand's own actions — never in an effect,
+  // which React runs twice in development and would open and shut the glass in the same instant.
+  const openGlass = useCallback(() => {
+    if (!id || open) return;
+    takeStep(window.history, id);
+    setOpen(true);
+  }, [id, open]);
+  const closeGlass = useCallback(() => {
+    setOpen(false);
+    if (id) leaveStep(window.history, id);
+  }, [id]);
+
+  // The history moved. Glass open: a landing anywhere but the glass's step (Back) closes it, the step
+  // already gone. Glass shut: a landing on the glass's step (Forward onto the step the word left
+  // behind) forgets the mark, so a glass opened from here closes on one Back.
+  useEffect(() => {
+    if (!id) return;
+    const onPop = (e: PopStateEvent) => {
+      if (open) {
+        if (popClosesGlass(e.state, id)) setOpen(false);
+      } else {
+        forgetStep(window.history, id);
+      }
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, [id, open]);
+
+  // A page that arrives on the glass's step with the glass shut — a reload while it was open — forgets
+  // the mark. This runs before Next's router has patched the history, so forgetStep carries the
+  // router's own marks along itself.
   useEffect(() => {
     if (id) forgetStep(window.history, id);
   }, [id]);
+
   if (!tileSet) return <>{children}</>;
   return (
     <>
@@ -40,21 +71,21 @@ export function Glass({ tileSet, line, children }: { tileSet: TileSet | null; li
         role="button"
         tabIndex={0}
         aria-label={`Open the glass: ${line}`}
-        className="flex h-full w-full cursor-zoom-in touch-pan-x touch-pan-y items-center justify-center outline-none"
-        onClick={() => setOpen(true)}
+        className="flex h-full w-full cursor-zoom-in touch-pan-x touch-pan-y items-center justify-center outline-none focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-8 focus-visible:outline-ink-faint"
+        onClick={openGlass}
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " ") {
             e.preventDefault();
-            setOpen(true);
+            openGlass();
           }
         }}
         onTouchStart={(e) => {
-          if (e.touches.length >= 2) setOpen(true);
+          if (e.touches.length >= 2) openGlass();
         }}
       >
         {children}
       </div>
-      {open && <Viewer tileSet={tileSet} line={line} onClose={close} opener={opener} />}
+      {open && <Viewer tileSet={tileSet} line={line} onClose={closeGlass} opener={opener} />}
     </>
   );
 }
@@ -62,14 +93,20 @@ export function Glass({ tileSet, line, children }: { tileSet: TileSet | null; li
 function Viewer({ tileSet, line, onClose, opener }: { tileSet: TileSet; line: string; onClose: () => void; opener: RefObject<HTMLDivElement | null> }) {
   const root = useRef<HTMLDivElement>(null);
   const stage = useRef<HTMLDivElement>(null);
-  const [intent, setIntent] = useState(false);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const show = useCallback(() => {
-    setIntent(true);
-    if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(() => setIntent(false), DWELL_MS);
-  }, []);
+  // The way out: cued by the glass opening and by every hand on it; shown for the dwell, live once
+  // it has fully appeared. `now` is moved on by a clock set to those two moments.
+  const [wayOut, setWayOut] = useState<WayOut | null>(null);
+  const [now, setNow] = useState(0);
+  const show = useCallback(() => setWayOut((before) => cue(Date.now(), before)), []);
+  useEffect(() => {
+    if (!wayOut) return;
+    const at = (t: number) => setTimeout(() => setNow(Date.now()), Math.max(0, t - Date.now()) + 10);
+    const timers = [at(wayOut.liveFrom), at(wayOut.shownUntil)];
+    return () => timers.forEach(clearTimeout);
+  }, [wayOut]);
+  const shown = isShown(wayOut, now);
+  const live = isLive(wayOut, now);
 
   useEffect(() => {
     // The page beneath stands still, and its own keys (the arrows, Escape to the wall) stand down.
@@ -119,8 +156,9 @@ function Viewer({ tileSet, line, onClose, opener }: { tileSet: TileSet; line: st
       // to the new shape again; a place being looked at is kept, inside the work's edges.
       let whole = true;
       let turning = false;
+      const wholeNow = () => afterTurn(v.viewport.getZoom(), v.viewport.getHomeZoom()) === "fit";
       v.addHandler("viewport-change", () => {
-        if (!turning) whole = afterTurn(v.viewport.getZoom(), v.viewport.getHomeZoom()) === "fit";
+        if (!turning) whole = wholeNow();
       });
       v.addHandler("resize", () => {
         turning = true;
@@ -129,6 +167,7 @@ function Viewer({ tileSet, line, onClose, opener }: { tileSet: TileSet; line: st
           if (gone) return;
           if (whole) v.viewport.goHome(true);
           else v.viewport.applyConstraints(true);
+          whole = wholeNow();
         });
       });
     })();
@@ -144,25 +183,10 @@ function Viewer({ tileSet, line, onClose, opener }: { tileSet: TileSet; line: st
       gone = true;
       viewer?.destroy();
       window.removeEventListener("keydown", onKey, true);
-      if (timer.current) clearTimeout(timer.current);
       delete document.body.dataset.glass;
       document.body.style.overflow = overflow;
     };
   }, [tileSet, onClose, show]);
-
-  // One step in the phone's history: Back takes it away and that closes the glass; closing any
-  // other way takes the step away itself, so Back afterwards is the page's own.
-  useEffect(() => {
-    takeStep(window.history, tileSet.id);
-    const onPop = (e: PopStateEvent) => {
-      if (popClosesGlass(e.state, tileSet.id)) onClose();
-    };
-    window.addEventListener("popstate", onPop);
-    return () => {
-      window.removeEventListener("popstate", onPop);
-      leaveStep(window.history, tileSet.id);
-    };
-  }, [tileSet.id, onClose]);
 
   // Focus: into the glass as it opens, back to the picture as it closes.
   useEffect(() => {
@@ -171,7 +195,7 @@ function Viewer({ tileSet, line, onClose, opener }: { tileSet: TileSet; line: st
     return () => picture?.focus({ preventScroll: true });
   }, [opener]);
 
-  const quiet = `transition-opacity duration-500 ${intent ? "opacity-100" : "opacity-0"}`;
+  const quiet = `transition-opacity duration-500 ${shown ? "opacity-100" : "opacity-0"}`;
   return (
     <div
       ref={root}
@@ -184,12 +208,14 @@ function Viewer({ tileSet, line, onClose, opener }: { tileSet: TileSet; line: st
       onTouchStart={show}
     >
       <div ref={stage} className="absolute inset-0" />
-      {/* The word sits where it did (24 px in, 20 px down); the target around it is a thumb's, clear of the notch. */}
+      {/* The word sits where it did (24 px in, 20 px down); the target around it is a thumb's, clear of
+          the notch — and takes a touch only once the word can be seen, so a touch in the corner while
+          it is faded goes to the glass and brings the word back. A keyboard reaches it regardless. */}
       <button
         type="button"
         onClick={onClose}
         aria-label="Close the glass"
-        className={`absolute right-[max(0.5rem,env(safe-area-inset-right))] top-[max(0.5rem,env(safe-area-inset-top))] flex min-h-11 min-w-11 items-start justify-end px-4 py-3 font-sans text-[11px] uppercase tracking-[0.2em] text-ink-faint hover:text-ink-muted focus-visible:opacity-100 ${quiet}`}
+        className={`absolute right-[max(0.5rem,env(safe-area-inset-right))] top-[max(0.5rem,env(safe-area-inset-top))] flex min-h-11 min-w-11 items-start justify-end px-4 py-3 font-sans text-[11px] uppercase tracking-[0.2em] text-ink-faint hover:text-ink-muted focus-visible:opacity-100 ${live ? "pointer-events-auto" : "pointer-events-none"} ${quiet}`}
       >
         close
       </button>
