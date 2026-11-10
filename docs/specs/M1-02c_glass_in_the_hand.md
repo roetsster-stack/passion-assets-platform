@@ -238,10 +238,10 @@ If you hunt for the word even once, say so: always-there on touch screens is a o
 **Not done here.** The Content-Security-Policy and the door's bucket check (next PR, as agreed). Tile size and
 the signed manifest (parked in M1-02 § JUDGED). Keeping a keyboard inside the glass: a third Tab leaves the
 dialog for the links beneath it, so `aria-modal` promises more than is enforced — a focus trap, or a portal
-and `inert` on the page, for a later pass. Fitting the glass to a page that was magnified before it opened.
-Forward re-opening the glass. The one Back that changes nothing after a reload while open. `viewport-fit=cover`
+and `inert` on the page, for a later pass. Forward re-opening the glass. The one Back that changes nothing after a reload while open. `viewport-fit=cover`
 is not set, so on an iPhone it is Safari that keeps the glass out of the notch, not the insets written here.
-Safari and a real phone were not run; iOS has honoured `touch-action` since iOS 13.
+Safari and a real phone were not run in the first round; iOS has supported `touch-action` since iOS 13, and
+what WebKit does with each of its values under the browser's own double tap is the second round's open question.
 
 ## BUILT — M1-02c, second round, 10 Nov 2026 — after the phone
 
@@ -263,8 +263,9 @@ one thing this round could not watch happen. The two candidates, in the order I 
    own words: "one pinch or a double tap goes in"). The first tap opens the glass; the second is iOS's
    double-tap zoom, which magnifies the page to the width of the thing tapped. The picture is 405 px wide
    on a 440 px screen: that is 1.086×, which is the magnification the screenshot measures. The first round's
-   `touch-action: pan-x pan-y` should, by the standard, have turned the double tap off; WebKit turns it off
-   for `manipulation` and `none` only. That would be why the first fix held in Chromium and not on the phone.
+   `touch-action: pan-x pan-y` should, by the standard, have turned the double tap off; I believe WebKit
+   turns it off for `manipulation` and `none` only — a belief, not an observation: Playwright's WebKit has
+   no double tap. If so, that is why the first fix held in Chromium and not on the phone.
 2. **A pinch that strayed.** One finger off the picture, in the 18 px margin beside it or the 48 px above it,
    and the browser owns the pinch. Possible, but it would give an arbitrary magnification, not 1.086.
 Neither can be made certain from here: Playwright's WebKit has no double-tap zoom and no pinch, those being
@@ -329,3 +330,29 @@ cause; if it still stutters with *close* complete on the screen, it is the other
 Chrome for iOS and Safari honour the refusal of the pinch at the picture (both are WebKit; the refusal is
 the documented one); how the glass fits a page at 1.1× on the device; whether the one-finger stutter is
 gone; and the feel of the arrival.
+
+**Third pass — the second cold review's four should-fixes, 10 Nov 2026.**
+1. **The focus line on the picture now draws.** `outline-none` had set Tailwind's outline style to `none`, and
+   `focus-visible:outline` drew that same variable; it is `focus-visible:outline-solid` now. *Measured in WebKit
+   (Playwright's build, a 1,280 px window):* one Tab from the page reaches the picture, `:focus-visible` is true,
+   and the outline is solid, 1 px, 8 px out, in ink-faint. Step 7 of the judging is true as written.
+2. **A turn made under a resting hand, or after a touch the browser cancels, is fitted after all.** The
+   "hand on the glass" flag of the second round was set on press and cleared on release, and a cancelled touch
+   raises no release. The glass now asks the viewer's own tracker whether any pointer of any kind is pressed —
+   a count that drops on a cancelled touch too — and a re-fit owed from a turn made under the hand is done as
+   the hand lifts. *Measured in WebKit, phone profile:* a hand resting on the glass through the turn leaves the
+   work at 0.744 of the fit while held (the viewer's own resize) and at 1.000 of the fit the moment it lifts;
+   with no hand, 1.000 in the same frame.
+3. **The double-Back test now proves the code.** The miniature history starts with the wall beneath the single
+   work, so a Back too many lands on the wall. With the guard in `leaveStep` removed, two tests fail — the one
+   the review named and a new one, the word twice; with it, eighteen pass. The runner reports 124 passing and
+   11 skipped, 135 in all.
+4. **The note:** the WebKit double-tap claim is now a belief, here and in the code's own comment; "fitting the
+   glass to a page magnified before it opened" is no longer listed as not done; the line about iOS and
+   `touch-action` is qualified.
+Also taken, from the nits: a cue within a tenth of a second of the last is the same cue, so a drag no longer
+renders the glass once per pointer move. Left, as the review allows: the viewer's own resize still rescales the
+work mid-gesture (its centre is kept, its scale is not — worth knowing if the phone shows a jump in size at the
+bottom edge); the half-second in which a quick mouse click on a returning word falls through to the viewer;
+the double tap on a live *close* whose second tap lands on *the wall* beneath (there since M1-02b); Back and
+the word in the same instant.

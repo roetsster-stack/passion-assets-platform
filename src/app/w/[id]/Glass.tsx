@@ -17,8 +17,9 @@ import type { TileSet } from "@/lib/gallery/types";
  * control, nothing that would disappoint.
  *
  * In the hand: the picture that opens the glass lets the page scroll but never magnify — not by the
- * browser's double tap (`touch-action: manipulation` turns that off in every engine; WebKit keeps it
- * on under `pan-x pan-y`) and not by its pinch, which is refused as it begins. Otherwise the gesture
+ * browser's double tap (`touch-action: manipulation` turns that off in every engine; I believe WebKit
+ * keeps it on under `pan-x pan-y`, which only a phone can confirm) and not by its pinch, which is
+ * refused as it begins. Otherwise the gesture
  * that is the way in also magnifies the page under the glass and carries its corners off the screen —
  * which is what an upright phone did. The open glass takes every touch itself (`touch-none`), so the
  * page beneath holds still, and it is fitted to what is visible of the page rather than to the layout
@@ -94,7 +95,7 @@ export function Glass({ tileSet, line, children }: { tileSet: TileSet | null; li
         role="button"
         tabIndex={0}
         aria-label={`Open the glass: ${line}`}
-        className="flex h-full w-full cursor-zoom-in touch-manipulation items-center justify-center outline-none focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-8 focus-visible:outline-ink-faint"
+        className="flex h-full w-full cursor-zoom-in touch-manipulation items-center justify-center outline-none focus-visible:outline-solid focus-visible:outline-1 focus-visible:outline-offset-8 focus-visible:outline-ink-faint"
         onClick={openGlass}
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " ") {
@@ -121,7 +122,14 @@ function Viewer({ tileSet, line, onClose, opener }: { tileSet: TileSet; line: st
   // it has fully appeared. `now` is moved on by a clock set to those two moments.
   const [wayOut, setWayOut] = useState<WayOut | null>(null);
   const [now, setNow] = useState(0);
-  const show = useCallback(() => setWayOut((before) => cue(Date.now(), before)), []);
+  const lastCue = useRef(0);
+  const show = useCallback(() => {
+    // A drag is a stream of moves; one cue a tenth of a second is the same cue, without a render per move.
+    const now = Date.now();
+    if (now - lastCue.current < 100) return;
+    lastCue.current = now;
+    setWayOut((before) => cue(now, before));
+  }, []);
   useEffect(() => {
     if (!wayOut) return;
     const at = (t: number) => setTimeout(() => setNow(Date.now()), Math.max(0, t - Date.now()) + 10);
@@ -176,31 +184,42 @@ function Viewer({ tileSet, line, onClose, opener }: { tileSet: TileSet; line: st
       viewer = v;
       // A hand on the glass brings the way out back, whether or not the touch reaches the dialog.
       for (const event of HAND_ON_GLASS) v.addHandler(event, show);
-      let hand = false;
-      v.addHandler("canvas-press", () => {
-        hand = true;
-      });
-      v.addHandler("canvas-release", () => {
-        hand = false;
-      });
+      // A hand on the glass: pointers pressed on the viewer, as its own tracker counts them per kind —
+      // a count that also drops for a touch the browser cancels, which raises no release.
+      const handOn = () => ["touch", "mouse", "pen"].some((kind) => v.innerTracker.getActivePointersListByType(kind).contacts > 0);
       // The glass changing shape — the phone turned, a browser toolbar sliding away: OpenSeadragon keeps
       // the place and the scale. A work shown whole is fitted to the new shape again; a place being
       // looked at is kept, inside the work's edges. With a hand on the glass nothing is forced: the
-      // viewer settles the view itself when the hand lifts, and a drag is not fought mid-gesture.
+      // viewer settles the view itself when the hand lifts, a drag is not fought mid-gesture, and a
+      // re-fit owed from a turn made under the hand is done as it lifts.
       let whole = true;
       let turning = false;
+      let owed = false;
       const wholeNow = () => afterTurn(v.viewport.getZoom(), v.viewport.getHomeZoom()) === "fit";
+      const settle = () => {
+        if (whole) v.viewport.goHome(true);
+        else v.viewport.applyConstraints(true);
+        whole = wholeNow();
+      };
       v.addHandler("viewport-change", () => {
         if (!turning) whole = wholeNow();
+      });
+      v.addHandler("canvas-release", () => {
+        if (owed && !handOn()) {
+          owed = false;
+          settle();
+        }
       });
       v.addHandler("resize", () => {
         turning = true;
         requestAnimationFrame(() => {
           turning = false;
-          if (gone || hand) return;
-          if (whole) v.viewport.goHome(true);
-          else v.viewport.applyConstraints(true);
-          whole = wholeNow();
+          if (gone) return;
+          if (handOn()) {
+            owed = true;
+            return;
+          }
+          settle();
         });
       });
     })();

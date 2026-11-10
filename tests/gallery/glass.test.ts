@@ -30,8 +30,9 @@ import {
  */
 function history(patched = false) {
   const marks = { __NA: true, __PRIVATE_NEXTJS_INTERNALS_TREE: ["tree"] };
-  const entries: unknown[] = [{ page: "the single work", ...marks }];
-  let at = 0;
+  // The wall beneath the single work: a Back too many is visible as a landing on the wall.
+  const entries: unknown[] = [{ page: "the wall", ...marks }, { page: "the single work", ...marks }];
+  let at = 1;
   const popped: unknown[] = [];
   const write = (data: unknown) => (patched ? { ...(data as object), ...marks } : data);
   const h: Steps & { entries: unknown[]; at(): number; popped: unknown[]; forward(): void } = {
@@ -69,12 +70,12 @@ describe("the step the glass takes", () => {
   it("opening adds one step above the page's own, marked as the glass's, carrying the router's marks itself", () => {
     const h = history();
     takeStep(h, id);
-    expect(h.entries).toHaveLength(2);
-    expect(h.at()).toBe(1);
+    expect(h.entries).toHaveLength(3);
+    expect(h.at()).toBe(2);
     expect(isGlassStep(h.state, id)).toBe(true);
     expect(marked(h.state)).toBe(true); // copied by takeStep, with no router patch in the way
-    expect(isGlassStep(h.entries[0], id)).toBe(false);
-    expect(h.entries[0]).toMatchObject({ page: "the single work" });
+    expect(isGlassStep(h.entries[1], id)).toBe(false);
+    expect(h.entries[1]).toMatchObject({ page: "the single work" });
   });
 
   it("under Next's own patch the entry comes out the same", () => {
@@ -97,18 +98,30 @@ describe("the step the glass takes", () => {
     const h = history();
     takeStep(h, id);
     leaveStep(h, id);
-    expect(h.at()).toBe(0);
+    expect(h.at()).toBe(1);
+    expect(h.state).toMatchObject({ page: "the single work" });
     expect(h.popped).toHaveLength(1);
-    expect(isGlassStep(h.state, id)).toBe(false);
+    h.back(); // the Back afterwards
+    expect(h.state).toMatchObject({ page: "the wall" });
   });
 
-  it("a glass that Back has already closed never sends the page back a second time", () => {
+  it("a glass that Back has already closed never sends the page back a second time — the wall stays beneath", () => {
     const h = history();
     takeStep(h, id);
     h.back(); // the collector pressed Back; the glass closed on the pop
     leaveStep(h, id); // and then unmounted
-    expect(h.at()).toBe(0);
+    expect(h.at()).toBe(1);
+    expect(h.state).toMatchObject({ page: "the single work" });
     expect(h.popped).toHaveLength(1);
+  });
+
+  it("the word twice, or the word and Escape together, is still one step back", () => {
+    const h = history();
+    takeStep(h, id);
+    leaveStep(h, id);
+    leaveStep(h, id);
+    expect(h.at()).toBe(1);
+    expect(h.state).toMatchObject({ page: "the single work" });
   });
 
   it("opened again after the word closed it, there is one step above the page and none left behind", () => {
@@ -116,8 +129,8 @@ describe("the step the glass takes", () => {
     takeStep(h, id);
     leaveStep(h, id);
     takeStep(h, id);
-    expect(h.entries).toHaveLength(2);
-    expect(h.at()).toBe(1);
+    expect(h.entries).toHaveLength(3);
+    expect(h.at()).toBe(2);
     expect(h.entries.filter((s) => isGlassStep(s, id))).toHaveLength(1);
   });
 
@@ -129,7 +142,7 @@ describe("the step the glass takes", () => {
     forgetStep(h, id);
     expect(isGlassStep(h.state, id)).toBe(false);
     expect(marked(h.state)).toBe(true);
-    expect(h.at()).toBe(1); // the entry itself stays; only the mark goes
+    expect(h.at()).toBe(2); // the entry itself stays; only the mark goes
     // A page that did not arrive on the glass's step is left exactly as it is.
     const plain = history();
     const before = plain.state;
