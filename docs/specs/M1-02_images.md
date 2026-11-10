@@ -294,7 +294,13 @@ dies in thirty minutes (a zoom session lasts). Anything else is 404. This door s
 image door still serves renditions only; masters are served by neither. Tiles skip the sign-in check that
 every page goes through (`src/middleware.ts` says so and why): a zoom asks for hundreds, and a round-trip to
 Supabase for each would make the glass stutter. The database alone decides, with the same rule as everything
-else — member, both factors — so nothing is loosened; only the detour is gone.
+else — member, both factors. One thing the door does give up, and it is worth saying plainly: every page asks
+Supabase whether the session is still live, and the tile door does not. It trusts the token the cookie carries
+until that token expires, which the database checks but cannot revoke. So a session signed out somewhere else
+can go on fetching tiles for up to an hour. The plan accepted that for the sake of the glass; everything else
+— membership, both factors, and the refusal of anything that is not a tile — is proven on every single tile.
+The exemption in the middleware is the door's own shape, not the whole `/t/` prefix, so nothing else could
+ever sit there unguarded.
 
 **Why.** The spec's job: "on the single work, the collector can lean in until the paper fibre shows." The
 Rijksstudio anchor — the glass over the Night Watch, the canvas thread.
