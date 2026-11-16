@@ -1,6 +1,7 @@
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { decide, type AssuranceLevel } from "@/lib/auth/decide";
+import { contentSecurityPolicy, newNonce, renditionsHost } from "@/lib/security/csp";
 
 type CookieToSet = { name: string; value: string; options: CookieOptions };
 
@@ -10,13 +11,33 @@ type CookieToSet = { name: string; value: string; options: CookieOptions };
  *
  * Unconfigured (no Supabase env, e.g. a preview with no variables yet) every request lands on
  * the sign-in screen, which then explains itself — never on data.
+ *
+ * It also sets the Content-Security-Policy (SEC-01) on every response it answers, with a nonce
+ * made fresh for that response. The policy travels on the forwarded request as well: Next reads
+ * the nonce there and marks its own inline scripts with it, and a page can read it as `x-nonce`.
  */
 export async function middleware(request: NextRequest) {
   const path = request.nextUrl.pathname;
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-  let response = NextResponse.next({ request });
+  const nonce = newNonce();
+  const csp = contentSecurityPolicy({
+    nonce,
+    development: process.env.NODE_ENV === "development",
+    production: process.env.NODE_ENV === "production",
+    supabaseUrl: url,
+    renditionsHost: renditionsHost(process.env),
+  });
+  // The request as it stands now (its cookies may have been refreshed), with the policy and the nonce on it.
+  const forward = () => {
+    const headers = new Headers(request.headers);
+    headers.set("x-nonce", nonce);
+    headers.set("content-security-policy", csp);
+    return NextResponse.next({ request: { headers } });
+  };
+
+  let response = forward();
 
   let signedIn = false;
   let currentLevel: AssuranceLevel | null = null;
@@ -29,7 +50,7 @@ export async function middleware(request: NextRequest) {
         },
         setAll(cookiesToSet: CookieToSet[]) {
           cookiesToSet.forEach(({ name, value }: CookieToSet) => request.cookies.set(name, value));
-          response = NextResponse.next({ request });
+          response = forward();
           cookiesToSet.forEach(({ name, value, options }: CookieToSet) => response.cookies.set(name, value, options));
         },
       },
@@ -57,8 +78,10 @@ export async function middleware(request: NextRequest) {
     const redirect = NextResponse.redirect(to);
     // carry any refreshed cookies along
     for (const c of response.cookies.getAll()) redirect.cookies.set(c.name, c.value, c);
+    redirect.headers.set("Content-Security-Policy", csp);
     return redirect;
   }
+  response.headers.set("Content-Security-Policy", csp);
   return response;
 }
 
