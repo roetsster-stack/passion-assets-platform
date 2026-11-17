@@ -237,7 +237,8 @@ browser; the write is in the audit log as the desk; the table's checks hold. Tha
 Postgres on Workshop. Lint, typecheck, test and build pass; the runner reports 183 tests passing and 12 skipped (the
 database tests), 195 in all.
 
-**The live run — 17 Nov, two attempts. The report is `Drafts_Report_2026-11-17.md` in the project folder.**
+**The live run — 17 Nov, three attempts. The report is `Drafts_Report_2026-11-17.md` in the project folder, from
+the third.**
 
 *The first attempt found nothing.* With the key in `~/curator/.env` and `CURATOR_CONTEXT_DIR` set, all five came back
 "the search found nothing on the allowed sites" — though thirty searches ran and the token counts showed results
@@ -248,7 +249,7 @@ search tool (`web_search_20250305`), whose results the text cites directly, pass
 then gave twelve cited passages from three searches, every one from an allowlisted host. The first attempt cost
 about $1.80.
 
-*The second attempt is the report.*
+*The second attempt.*
 - **Halter** — five sentences: born in Harare in 1977, lives and works in Cape Town (ArtThrob's CV); a BFA from
   Michaelis in 2001 (the Smithsonian); Zeitz MOCAA's words on his craft methods; his own words on *Footsack Empire*
   and *Indlala inamanyala*, from his statement. Why he matters, in ArtThrob's words. One sentence removed for
@@ -264,24 +265,42 @@ about $1.80.
   are not verbatim in any cited passage. The checker did its job.
 - **Naude** — nothing on the allowed sites; "Not enough is known yet." twice; the model was not asked to write. The
   little-online test, as the spec wanted it.
-In all: 16 requests, 30 searches, 497,549 input and 38,459 output tokens — about $3. The table was not written (the
-migration awaits your yes); the drafts live in the report. With the first attempt and two probes, about $5 today.
+In all: 16 requests, 30 searches, 497,549 input and 38,459 output tokens — about $3.
 
-*What the runs taught — three removals that were the checker's fault, not the model's, fixed in this PR after the
-report was written.* (1) "the artist says" did not count as naming Halter in his own statement; now a source's
+*What the second attempt taught — three removals that were the checker's fault, not the model's, fixed in this PR
+before the third.* (1) "the artist says" did not count as naming Halter in his own statement; now a source's
 stated role ("Dan Halter (the artist)") names it. (2) "a US dollar bill" in a collage was caught as a currency;
 now a currency word is money only with an amount beside it. (3) Hilton Als, named in the sentence and in Tate's
 passage, did not count as attribution because he is not the page's publisher; now a person or body the cited
 passage itself names counts — never the subject's own name — and "the artist" counts where the passage carries
-the artist's name. Under the refined rule the two sentences removed from Yiadom-Boakye's draft would stand. The
-report was not rerun; a rerun of the five is about $3.
+the artist's name. Then, on your word, the five were run a third time under the refined rule.
+
+*The third attempt is the report.*
+- **Halter** — five sentences, nothing removed: born in Harare in 1977, lives and works in Cape Town (the Smithsonian,
+  WHATIFTHEWORLD — his biography now cites his gallery, as the spec hoped); a BFA from Michaelis in 2001 (the
+  Smithsonian); his own words on all four works, as "the artist writes", "in Halter's words", "as he describes
+  them". Why he matters, in Zeitz MOCAA's words on his craft methods.
+- **Kentridge** — six sentences, nothing removed: SAHO, Marian Goodman, Goodman Gallery, the Met, the Guggenheim,
+  Tate, Apollo, ArtThrob. Why he matters, in Zeitz MOCAA's words — "celebrated internationally", a superlative
+  allowed because quoted and attributed. The Met's passage goes on to his father, "the renowned trial lawyer"; the
+  draft does not.
+- **Yiadom-Boakye** — five sentences from Tate, Corvi-Mora's CV, Jack Shainman and the Serpentine; why she matters in
+  Hyperallergic's words. Two removed: one by the second reading, which caught "as she has explained to Tate" where
+  the passage says only "as she has explained" — a claim added, rule 4; one for length, the Turner Prize shortlist,
+  past 120 words. "As she puts it" now counts as naming her, beside "according to Tate".
+- **Adams** — five sentences, nothing removed: blank projects, C&, Artforum, ArtThrob, ART AFRICA, The Art Newspaper;
+  his own words from Frieze, attributed; why he matters, in blank projects' words. ART AFRICA's passage speaks of a
+  named person's illness; the draft does not.
+- **Naude** — as before: nothing on the allowed sites, the list's own sentence twice, no call to the model.
+In all: 17 requests, 30 searches, 508,701 input and 29,717 output tokens — about $3. The table was not written (the
+migration awaits your yes); the drafts live in the report. For the day — three attempts and two probes — about $8.
 
 **What to read in the report.** Every sentence ends in [n] and every [n] is a source you can open, with the passage
 beneath it. No sum of money, no auction, no market, on any of the five. No "most important" or "seminal" but inside
 quotation marks with the source named. Nothing about where a work is, who owns it, or you. Halter's draft rests on
 his own words and the allowlist. Kentridge's says nothing of prices. Naude's is the list's own sentence. Then
-"Removed by the desk" under each: that is the restraint, and the two wrong removals are named above.
+"Removed by the desk" under each: that is the restraint, and this time none of it is the checker's fault.
 
-**Not done here.** The migration (your yes). A rerun under the refined attribution rule. Drafts about works
+**Not done here.** The migration (your yes). Drafts about works
 (M2-02). The "ask for a draft" button. Jean's approval (one line when she is invited). Gallery MOMO and the Javett on
 the allowlist.
