@@ -33,7 +33,7 @@ describe.skipIf(!url)("M1-01 · the record arrives", () => {
   let db: Client;
   const USER_A = "11111111-1111-4111-8111-111111111111"; // a member (owner)
   const USER_B = "22222222-2222-4222-8222-222222222222"; // a stranger
-  const ALL_TABLES = ["collections", "collection_members", "owners", "artists", "items", "item_owners", "provenance_events", "images", "documents", "ingest_runs", "audit_log"];
+  const ALL_TABLES = ["collections", "collection_members", "owners", "artists", "items", "item_owners", "provenance_events", "images", "documents", "ingest_runs", "audit_log", "drafts"];
 
   function deps(overrides: Partial<IngestDeps> = {}): IngestDeps {
     return {
@@ -284,6 +284,46 @@ describe.skipIf(!url)("M1-01 · the record arrives", () => {
       await db.query("drop table public.later_table");
     }
   });
+  it("M2-04 · drafts: the owner reads them; a viewer, an advisor, a stranger and a half-signed-in owner read none; nobody writes from a browser; every write audited; the shape holds", async () => {
+    const cid = (await db.query<{ id: string }>("select id from collections where name = 'Test Collection'")).rows[0].id;
+    const USER_C = "33333333-3333-4333-8333-333333333333"; // a viewer
+    const USER_D = "44444444-4444-4444-8444-444444444444"; // an advisor
+    await db.query("insert into auth.users (id, email) values ($1, 'c@example.test'), ($2, 'd@example.test') on conflict do nothing", [USER_C, USER_D]);
+    await db.query("insert into collection_members (collection_id, user_id, role) values ($1, $2, 'viewer'), ($1, $3, 'advisor') on conflict do nothing", [cid, USER_C, USER_D]);
+    const artist = (await db.query<{ id: string }>("select id from artists where collection_id = $1 order by surname limit 1", [cid])).rows[0];
+    await db.query("select set_config('app.actor', 'draft', false)");
+    try {
+      const inserted = await db.query<{ id: string }>(
+        `insert into drafts (collection_id, subject, artist_id, field, text, sentences, sources, list_version, model)
+         values ($1, 'artist', $2, 'biography', 'She paints.', '[{"text":"She paints.","sources":[1]}]', '[{"n":1,"kind":"supplied","title":"T","publisher":"P","link":null,"passage":"She paints."}]', 'abc', 'claude-test-5') returning id`,
+        [cid, artist.id],
+      );
+      const id = inserted.rows[0].id;
+      // the owner, both factors proven, reads it — and nobody else, at any level
+      expect(await asUser(USER_A, "authenticated", `select text, status from drafts where id = '${id}'`)).toEqual([{ text: "She paints.", status: "draft" }]);
+      expect(await asUser(USER_A, "authenticated", `select id from drafts where id = '${id}'`, "aal1")).toHaveLength(0);
+      for (const u of [USER_B, USER_C, USER_D]) expect(await asUser(u, "authenticated", "select count(*)::int as n from drafts"), u).toEqual([{ n: 0 }]);
+      await expect(asUser(null, "anon", "select * from public.drafts")).rejects.toThrow(/permission denied/);
+      // no signed-in person writes a draft or approves one from a browser: approving is M2-01's, by its own path
+      await expect(asUser(USER_A, "authenticated", `update drafts set status = 'approved', decided_by = '${USER_A}', decided_at = now() where id = '${id}'`)).rejects.toThrow(/permission denied/);
+      await expect(
+        asUser(USER_A, "authenticated", `insert into drafts (collection_id, subject, artist_id, field, text, sentences, sources, list_version, model) values ('${cid}', 'artist', '${artist.id}', 'biography', 'x', '[]', '[]', 'v', 'm')`),
+      ).rejects.toThrow(/permission denied/);
+      // the audit log has the write, with the desk as its actor
+      const audit = await db.query<{ action: string; actor_label: string }>("select action, actor_label from audit_log where table_name = 'drafts' and row_id = $1", [id]);
+      expect(audit.rows).toEqual([{ action: "insert", actor_label: "draft" }]);
+      // the shape: one subject; a decision is dated and signed; only the two fields
+      await expect(db.query("insert into drafts (collection_id, subject, field, text, sentences, sources, list_version, model) values ($1, 'artist', 'biography', 'x', '[]', '[]', 'v', 'm')", [cid])).rejects.toThrow(/drafts_one_subject/);
+      await expect(db.query("update drafts set status = 'approved' where id = $1", [id])).rejects.toThrow(/drafts_decision_dated/);
+      await expect(db.query("insert into drafts (collection_id, subject, artist_id, field, text, sentences, sources, list_version, model) values ($1, 'artist', $2, 'tombstone', 'x', '[]', '[]', 'v', 'm')", [cid, artist.id])).rejects.toThrow(/field/);
+      await db.query("update drafts set status = 'approved', decided_by = $2, decided_at = now() where id = $1", [id, USER_A]);
+      expect(await asUser(USER_A, "authenticated", `select status from drafts where id = '${id}'`)).toEqual([{ status: "approved" }]);
+      expect(Number((await db.query<{ n: string }>("select count(*) n from audit_log where table_name = 'drafts' and row_id = $1", [id])).rows[0].n)).toBe(2);
+    } finally {
+      await db.query("select set_config('app.actor', '', false)");
+    }
+  });
+
   it("M1-02a · the ladder: every picture's renditions cut once; a master becomes the picture and is never returned to a page", async () => {
     const cid = (await db.query<{ id: string }>("select id from collections where name = 'Test Collection'")).rows[0].id;
     // No encoding here (the encoder has its own tests): a renderer that knows a master by its first
