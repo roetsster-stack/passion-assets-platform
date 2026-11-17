@@ -84,7 +84,7 @@ export async function draftArtist(artist: ArtistInput, deps: DeskDeps): Promise<
     const cited = dropUncited(sentences, sources);
     removed.push(...cited.removed);
 
-    const ruled = checkField(field, cited.kept, sources, { living, neverName: deps.neverName });
+    const ruled = checkField(field, cited.kept, sources, { living, neverName: deps.neverName, artistNames: [artist.surname, artist.givenName ?? ""].filter((n) => n.length >= 3) });
     removed.push(...ruled.removed.filter((r) => r.rule !== "length"));
     let kept = ruled.kept;
     const lengthRemovals = ruled.removed.filter((r) => r.rule === "length");

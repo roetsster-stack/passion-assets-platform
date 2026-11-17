@@ -1,7 +1,8 @@
 /**
  * M2-04 · The real model: the Anthropic SDK, the one new dependency. Three calls per artist:
  * a search on the allowlisted sites that returns only what the API itself cited (the passage, the
- * page, the title — never the model's summary of it), a draft in a fixed JSON shape, and a second
+ * page, the title — never the model's summary of it; hence the basic search tool, whose results the
+ * text cites directly), a draft in a fixed JSON shape, and a second
  * reading against the list. The key is read from the environment on Workshop and nowhere else.
  */
 import Anthropic from "@anthropic-ai/sdk";
@@ -56,7 +57,7 @@ export const READING_SCHEMA = {
   additionalProperties: false,
 } as const;
 
-export const SEARCH_SYSTEM = `You are the research clerk of a private art register. Your job is to find, on the sites you are allowed to search and nowhere else, passages about one artist: where and when they were born and trained, where they live and work, what they make and how; what the artist, a curator or a critic has said the work is about, in their words; exhibitions and public collections as a museum or gallery states them. Quote every passage you use exactly as it is written on the page, so that each quotation carries its citation. Do not summarise in your own words, do not add anything from memory, and do not look for prices, sales, auction results or market standing. If the sites hold little, say so briefly and stop.`;
+export const SEARCH_SYSTEM = `You are the research clerk of a private art register. The search tool you have is already limited to the sites the register trusts; you need not check or ask which they are. Your job is to find there passages about one artist: where and when they were born and trained, where they live and work, what they make and how; what the artist, a curator or a critic has said the work is about, in their words; exhibitions and public collections as a museum or gallery states them. Quote every passage you use exactly as it is written on the page, each as its own quotation with the page it came from, so that each carries its citation; a passage you paraphrase is lost. Do not summarise in your own words, do not add anything from memory, and do not look for prices, sales, auction results or market standing. Use every search you are given before you stop; if the sites hold little, say so briefly.`;
 
 export const draftSystem = (rules: string) =>
   `You draft wall texts for a private art register, under a written list of things you must never do. The list:\n\n${rules}\n\nHow to write.\n- Write only from the numbered sources given to you. Every sentence must cite, by number, the sources it rests on, and every fact in it must appear in a cited passage. Your memory is not a source. No source, no sentence.\n- Quotation marks only around words copied exactly, letter for letter and capitals included, from a cited passage — and name in the same sentence who wrote or said them (the artist, the gallery, the museum, the critic). A ranking word or superlative may appear only inside such a quotation; your own words carry none.\n- No price, estimate, auction, market, investment or value in any form. Nothing about where a work is, who owns it, its insurance or condition. Nothing about a living person's private life beyond what they have published themselves.\n- Titles of works in *italics*, never in quotation marks. Write in the third person; never as the artist or the collector.\n- If the sources support little, write less. You may end with the exact sentence "${NOT_ENOUGH}", which needs no source. Never fill a gap with a guess.\n- biography: a short account of the person and the work, at most ${LIMITS.biography.words} words (sixty to eighty is right when the sources allow). why_they_matter: exactly one sentence of at most ${LIMITS.why_they_matter.words} words on why this artist matters, resting on a named source's own words; if no source says why, write "${NOT_ENOUGH}".\n- Register: plain, warm, exact — a museum's wall text, not a gallery's press release.\nAnswer in the JSON shape you are given and nothing else.`;
@@ -136,7 +137,10 @@ export function anthropicModel(options: { model?: string; client?: Anthropic; ma
           max_tokens: 16000,
           system: SEARCH_SYSTEM,
           output_config: { effort: "medium" },
-          tools: [{ type: "web_search_20260209", name: "web_search", max_uses: maxSearches, allowed_domains: sites.map((s) => s.domain) }],
+          // The basic search tool, deliberately: the newer variant (web_search_20260209) runs its searches
+          // inside a code sandbox and answers from printed results, so its text carries no citations — and
+          // the desk takes nothing but citations. Seen on the first live run, 17 Nov 2026.
+          tools: [{ type: "web_search_20250305", name: "web_search", max_uses: maxSearches, allowed_domains: sites.map((s) => s.domain) }],
           messages,
         });
         usage = add(usage, usageOf(response));

@@ -6,7 +6,7 @@
  * a set of good ones comes through clean.
  */
 import { describe, expect, it } from "vitest";
-import { attributes, checkField, checkSentence, namesOf, normalise, quotationsIn, RANK_WORDS, VALUE_WORDS } from "@/lib/drafting/rules";
+import { attributes, checkField, checkSentence, namedIn, namesOf, normalise, quotationsIn, RANK_WORDS, VALUE_WORDS } from "@/lib/drafting/rules";
 import { NOT_ENOUGH, type Sentence, type Source } from "@/lib/drafting/types";
 
 const S: Source[] = [
@@ -34,19 +34,31 @@ const S: Source[] = [
     link: "https://iziko.example/test-painter",
     passage: "Her work *Harbour at Dusk* entered the museum's collection in 2022.",
   },
+  {
+    n: 4,
+    kind: "web",
+    title: "Test Painter: a reading",
+    publisher: "Tate",
+    link: "https://tate.example/test-painter",
+    passage: "Writer and critic Ann Example has written that Test Painter is interested in the harbour, not as a view but as a place of work. Test Painter told the museum: I paint what I remember.",
+  },
 ];
+const about = { living: true, artistNames: ["Painter", "Test"] };
 const living = { living: true };
 const s = (text: string, sources: number[] = [1]): Sentence => ({ text, sources });
 const rulesOf = (text: string, sources: number[] = [1], ctx = living) => checkSentence(s(text, sources), S, ctx).map((v) => v.rule);
 
 describe("rule 2 — never state or imply a value", () => {
   it("catches money in any currency, large numbers, and the words of the market", () => {
-    for (const t of ["Her paintings sell for R2 million.", "One sold for $1,200.", "A work made £500.", "Prices are in ZAR.", "It fetched two million rand.", "She has made 1.2 million works."]) {
+    for (const t of ["Her paintings sell for R2 million.", "One sold for $1,200.", "A work made £500.", "Prices are in ZAR.", "It fetched two million rand.", "She has made 1.2 million works.", "It changed hands for a few thousand dollars.", "A gift of 500 euros."]) {
       expect(rulesOf(t), t).toContain(2);
     }
     for (const t of ["Her work is a sound investment.", "Her auction record was set in 2021.", "The market for her work is strong.", "She is a sought-after painter.", "A blue-chip name.", "The work is worth seeing."]) {
       expect(rulesOf(t), t).toContain(2);
     }
+    // a currency word with no amount beside it is a thing, not a value: a dollar bill in a collage
+    expect(rulesOf("Halter makes a crudely formed US dollar bill from Sontag's text.")).toEqual([]);
+    expect(rulesOf("The pound coin in the corner is a found object.")).toEqual([]);
     expect(VALUE_WORDS).toContain("sought-after");
     expect(VALUE_WORDS).toContain("appreciating");
   });
@@ -94,18 +106,36 @@ describe("the exact-match test on every quotation (rule 7)", () => {
 
   it("matches the artist's words with the markdown of the supplied text set aside, and wants the speaker named", () => {
     expect(rulesOf("Test Painter wrote: “I painted Blue Field over one winter in a cold studio.”", [2])).toEqual([]);
+    // the artist's own text may be named by the role its author line states
+    expect(rulesOf("The colour, the artist says, is “the blue of the bay in July”.", [2])).toEqual([]);
+    expect(rulesOf("The colour, she says, is “the blue of the bay in July”.", [2])).toContain(3);
     const unnamed = rulesOf("She wrote: “I painted Blue Field over one winter in a cold studio.”", [2]);
     expect(unnamed).toContain(3);
     expect(rulesOf("Test Painter wrote: “I painted Blue Field over one summer in a cold studio.”", [2])).toContain(7);
   });
 
   it("names a source by its publisher or a distinctive word of it", () => {
-    expect(namesOf("Test Painter (the artist)")).toEqual(["Test Painter", "Test", "Painter"]);
+    expect(namesOf("Test Painter (the artist)")).toEqual(["Test Painter", "Test", "Painter", "the artist"]);
+    expect(namesOf("Harbour Gallery")).toEqual(["Harbour Gallery", "Harbour"]);
     expect(namesOf("Iziko Museums of South Africa")).toEqual(["Iziko Museums of South Africa", "Iziko"]);
     expect(attributes("as Iziko records", S[2])).toBe(true);
     expect(attributes("as the South African museum records", S[2])).toBe(false);
     expect(attributes("as Harbour Gallery puts it", S[0])).toBe(true);
     expect(attributes("as the gallery puts it", S[0])).toBe(false);
+  });
+
+  it("or by the named person the passage itself quotes — never by the subject's own name, and 'the artist' only where the passage is theirs", () => {
+    expect(namedIn(S[3].passage)).toEqual(["Ann Example", "Test Painter"]);
+    // a critic quoted on a museum's page, named in the sentence
+    expect(rulesOf("Ann Example has written that she is “interested in the harbour, not as a view but as a place of work”.", [4], about)).toEqual([]);
+    expect(rulesOf("Tate records that she is “interested in the harbour, not as a view but as a place of work”.", [4], about)).toEqual([]);
+    expect(rulesOf("A critic has written that she is “interested in the harbour, not as a view but as a place of work”.", [4], about)).toContain(3);
+    // naming the subject is not naming the source
+    expect(rulesOf("Test Painter is “interested in the harbour, not as a view but as a place of work”.", [4], about)).toContain(3);
+    // the artist's words on another's page: 'the artist' names them, because the passage carries the artist's name
+    expect(rulesOf("The artist says she paints “what I remember”.", [4], about)).toEqual([]);
+    expect(rulesOf("The artist says she paints “what I remember”.", [4])).toContain(3);
+    expect(rulesOf("She says she paints “what I remember”.", [4], about)).toContain(3);
   });
 });
 

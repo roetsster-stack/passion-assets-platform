@@ -57,7 +57,8 @@ describe("the search", () => {
     const model = anthropicModel({ client, model: "claude-test-5", maxSearches: 4 });
     const r = await model.search({ artist, sites });
     expect(calls).toHaveLength(2);
-    expect(calls[0].tools).toEqual([{ type: "web_search_20260209", name: "web_search", max_uses: 4, allowed_domains: ["harbour-gallery.example"] }]);
+    // the basic tool: the 20260209 variant searches inside a code sandbox and cites nothing (first live run, 17 Nov 2026)
+    expect(calls[0].tools).toEqual([{ type: "web_search_20250305", name: "web_search", max_uses: 4, allowed_domains: ["harbour-gallery.example"] }]);
     expect(calls[0].model).toBe("claude-test-5");
     expect(calls[0].messages).toHaveLength(1);
     expect(calls[1].messages).toHaveLength(2);

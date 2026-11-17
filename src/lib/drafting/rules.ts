@@ -8,7 +8,9 @@
  * - The exact-match test (rule 7, and rule 6 as Michael wrote it): the quoted words must appear in
  *   the passage of a cited source — curly or straight quotes, spacing, dashes and markdown emphasis
  *   aside, letter for letter otherwise, capitals included. A quotation that fails is "not a quotation".
- * - A quotation must name its source in the same sentence (rule 3: "quoted … and attributed").
+ * - A quotation must name its source in the same sentence (rule 3: "quoted … and attributed"): the
+ *   page's publisher, or the named person the passage itself quotes (a critic on a museum's page),
+ *   or "the artist" where the passage is the artist's own words.
  * - Every sentence cites at least one source that exists (rule 4) — except the one sentence the
  *   list itself allows, "Not enough is known yet." (rule 10).
  * - Nothing about where a work is, who owns it, what it is insured for or its condition (rule 5);
@@ -32,7 +34,8 @@ const phrases = (list: string[]) => new RegExp(`(?<![\\w-])(?:${list.map((w) => 
 export const MONEY_PATTERNS: { re: RegExp; why: string }[] = [
   { re: /[R$£€¥]\s?\d/g, why: "a sum of money" },
   { re: /(?<![\w])(?:ZAR|USD|GBP|EUR|JPY|CHF)(?![\w])/g, why: "a currency" },
-  { re: /(?<![\w])(?:rands?|dollars?|pounds? sterling|euros?)(?![\w])/gi, why: "a currency" },
+  // a currency word is money when an amount stands beside it ("two million rand", "500 dollars"); a dollar bill in a collage is not
+  { re: /(?:\d[\d,.]*|(?<![\w])(?:one|two|three|four|five|six|seven|eight|nine|ten|twenty|fifty|hundred|thousand|million|billion|few|several))\s+(?:\w+\s+)?(?:rands?|dollars?|pounds?|euros?)(?![\w])/gi, why: "a sum of money" },
   { re: /(?<![\w])\d[\d,.]*\s?(?:million|billion|thousand)(?![\w])/gi, why: "a large number" },
 ];
 
@@ -107,16 +110,40 @@ const NOT_A_NAME = new Set([
   "journal", "review", "news", "newspaper", "daily", "weekly", "times", "com", "org", "www",
 ]);
 
-/** The words by which a source may be named in a sentence: its publisher, or any distinctive word of it. */
+/**
+ * The words by which a source may be named in a sentence: its publisher, any distinctive word of it, and
+ * its role when the publisher states one — "Dan Halter (the artist)" may be named as "the artist".
+ */
 export function namesOf(publisher: string): string[] {
+  const roles = [...publisher.matchAll(/\(([^)]+)\)/g)].map((m) => m[1].trim()).filter((r) => /^the\s+\p{L}+$/iu.test(r));
   const whole = publisher.replace(/\s*\(.*?\)\s*/g, " ").trim();
   const tokens = (whole.match(/[\p{L}][\p{L}'’-]{2,}/gu) ?? []).filter((t) => !NOT_A_NAME.has(t.toLowerCase()));
-  return [...new Set([whole, ...tokens].filter((t) => t.length >= 3))];
+  return [...new Set([whole, ...tokens, ...roles].filter((t) => t.length >= 3))];
 }
 
-/** Does the text (outside its quotations) name this source? */
-export function attributes(textOutsideQuotes: string, source: Pick<Source, "publisher">): boolean {
-  return namesOf(source.publisher).some((name) => new RegExp(`(?<![\\p{L}])${escape(name)}(?![\\p{L}])`, "iu").test(textOutsideQuotes));
+const names = (text: string, list: string[]) => list.some((name) => new RegExp(`(?<![\\p{L}])${escape(name)}(?![\\p{L}])`, "iu").test(text));
+
+/** The people and bodies a passage names: runs of capitalised words ("Hilton Als", "Jack Shainman Gallery"). */
+export function namedIn(passage: string): string[] {
+  const runs = passage.match(/\p{Lu}[\p{L}'’-]+(?:\s+(?:\p{Lu}[\p{L}'’-]+|de|van|von|da|du|of|the|and))+/gu) ?? [];
+  return [...new Set(runs.map((r) => r.replace(/\s+(?:de|van|von|da|du|of|the|and)$/u, "").trim()).filter((r) => r.includes(" ") && !r.split(/\s+/).every((t) => NOT_A_NAME.has(t.toLowerCase()))))];
+}
+
+export type Attribution = { artistNames?: string[] };
+
+/**
+ * Does the text (outside its quotations) name this source? Yes when it names the publisher or a
+ * distinctive word of it; or a person or body the cited passage itself names (never the artist the
+ * draft is about — naming its subject is not attribution); or "the artist", where the passage is the
+ * artist's own text or carries the artist's name.
+ */
+export function attributes(textOutsideQuotes: string, source: Pick<Source, "publisher" | "passage">, ctx: Attribution = {}): boolean {
+  if (names(textOutsideQuotes, namesOf(source.publisher))) return true;
+  const artist = (ctx.artistNames ?? []).filter((n) => n.length >= 3);
+  const others = namedIn(source.passage).filter((n) => !artist.some((a) => new RegExp(`(?<![\\p{L}])${escape(a)}(?![\\p{L}])`, "iu").test(n)));
+  if (names(textOutsideQuotes, others)) return true;
+  if (artist.length && names(source.passage, artist) && /(?<![\p{L}])the artist(?![\p{L}])/iu.test(textOutsideQuotes)) return true;
+  return false;
 }
 
 const blank = (text: string, spans: Span[]) => spans.reduce((t, s) => t.slice(0, s.start) + " ".repeat(s.end - s.start) + t.slice(s.end), text);
@@ -126,8 +153,8 @@ function hits(re: RegExp, text: string): string[] {
   return [...text.matchAll(re)].map((m) => m[0]);
 }
 
-/** `neverName`: words that must not appear at all — the collection's owner (rule 5: who owns it). */
-export type Context = { living: boolean; neverName?: string[] };
+/** `neverName`: words that must never appear — the collection's owner (rule 5). `artistNames`: the subject's, for attribution. */
+export type Context = { living: boolean; neverName?: string[]; artistNames?: string[] };
 
 /** The violations of one sentence against the list — an empty list means it may stay. */
 export function checkSentence(s: Sentence, sources: Source[], ctx: Context): Violation[] {
@@ -149,7 +176,7 @@ export function checkSentence(s: Sentence, sources: Source[], ctx: Context): Vio
       v.push({ rule: 7, why: "a quotation that is not verbatim in any cited source", match: q.text });
       continue;
     }
-    if (!attributes(outsideAll, owner)) {
+    if (!attributes(outsideAll, owner, { artistNames: ctx.artistNames })) {
       v.push({ rule: 3, why: `a quotation whose source (${owner.publisher}) is not named in the sentence`, match: q.text });
       continue;
     }

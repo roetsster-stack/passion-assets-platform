@@ -171,12 +171,15 @@ at this commit `daaa969ce26f44f461d8b0bc1ab6ac183a65a39e`) and the model's name 
 **What rule 6, as you wrote it, built — the exact-match test on every quotation.** Words in quotation marks must
 appear in the passage of a cited source letter for letter — curly or straight quotes, spacing, dashes and the
 markdown of a supplied text aside; capitals included. A quotation that fails is "not a quotation" (rule 7) and the
-sentence goes. A quotation must also name its source in the same sentence ("as Stevenson puts it", "Halter has
-written") — rule 3's "quoted … and attributed". Only inside such a quotation may a ranking word, a value word or a
+sentence goes. A quotation must also name its source in the same sentence — rule 3's "quoted … and attributed":
+the page's publisher ("as Stevenson puts it"), or the person or body the passage itself names (a critic quoted on
+Tate's page), or "the artist" where the passage is the artist's own statement or carries the artist's name;
+naming the subject of the draft is not naming a source. Only inside such a quotation may a ranking word, a value word or a
 word about a living person's private life appear; in the desk's own words, never. A paraphrase never carries a
 superlative. The checker's word lists are in `src/lib/drafting/rules.ts`, in plain sight: the list's own words
 (price, estimate, auction, market, investment, blue-chip, sought-after, appreciating; the most, seminal, major,
-leading) and their kin; money in any currency; the sensitive classes (insured, condition, hangs in, owned by,
+leading) and their kin; money in any currency (a currency word counts with an amount beside it — "two million
+rand" — not alone: a dollar bill in a collage is a thing); the sensitive classes (insured, condition, hangs in, owned by,
 private collection, the collector); the first person; and your own name, which the desk derives from the
 collection's name and removes wherever it appears. "Not enough is known yet." is the one sentence that needs no
 source.
@@ -199,8 +202,10 @@ says the table is not there yet and the drafts live in the report.
   is `claude-opus-5-5` unless `CURATOR_DRAFT_MODEL` says otherwise, and the draft records the name the API answers
   with. No automatic fall-back to another model on a declined request: a draft must say which model wrote it, so a
   declined request is reported as "not drafted" instead.
-- The search keeps the API's citations only (passage, page, title), from allowed sites only, each passage once; a
-  long search that pauses is sent back to continue, up to four times.
+- The search is the basic search tool (`web_search_20250305`), on purpose: the newer variant answers from a code
+  sandbox and cites nothing (the first live run, below). The desk keeps the API's citations only (passage, page,
+  title), from allowed sites only, each passage once; a long search that pauses is sent back to continue, up to
+  four times.
 - The model sees a supplied file's own heading as the source's title ("Dan Halter — in his own words"), not its
   Document line, which names you and the email.
 - A quotation keeps the passage's capitals: "The blue is the blue…" cannot be quoted as "the blue is the blue…".
@@ -211,13 +216,14 @@ says the table is not there yet and the drafts live in the report.
 - The report lands in `~/curator/drafts/Drafts_<date>.md` unless `--report <file>` says where; `--no-db` keeps the
   table untouched.
 
-**Tests** — 58 in `tests/drafting/`, no key, no network: the page is this spec's section word for word and parses as
+**Tests** — 59 in `tests/drafting/`, no key, no network: the page is this spec's section word for word and parses as
 rules 1 to 10; the version is git's own hash of the file (two known answers, and git's answer for the real file);
 the desk refuses without the list. The checker: every rule, the exact-match test with its normalisations, a set of
 fourteen hand-written bad sentences each with one planted fault — money, a market word, an auction, a paraphrased
 superlative, a quotation changed by one word, a quotation unattributed, no source, a source that does not exist, a
 work's location, the first person, a living person's divorce, your name — every one caught under its rule, and seven
-good sentences, a quoted superlative among them, clean; a whole good biography through whole. The supplied-text
+good sentences, a quoted superlative among them, clean; a whole good biography through whole; attribution by the
+publisher, by a person the passage names, by "the artist" — and not by the subject's own name. The supplied-text
 reader on a hand-written fixture (never Dan's text). The allowlist: its shape, the real file's contents, subdomains
 and look-alikes, the resolve check. The desk against a stand-in model: supplied sources numbered before the web;
 the search given the allowlist only; a sentence on no source dropped, one on source 9 dropped, one with "investment"
@@ -228,30 +234,54 @@ domains, a paused turn is continued, citations from elsewhere dropped, the two J
 declined request an error. And one database test beside the others in `tests/db/ingest.test.ts`: the owner reads a
 draft; a viewer, an advisor, a stranger and a half-signed-in owner read none; nobody inserts or approves from a
 browser; the write is in the audit log as the desk; the table's checks hold. That one runs in CI only — there is no
-Postgres on Workshop. Lint, typecheck, test and build pass; the runner reports 182 tests passing and 12 skipped (the
-database tests), 194 in all.
+Postgres on Workshop. Lint, typecheck, test and build pass; the runner reports 183 tests passing and 12 skipped (the
+database tests), 195 in all.
 
-**The live run — not done.** `ANTHROPIC_API_KEY` is not in `~/curator/.env` (checked by count, never printed), so
-the desk stopped before the live run, as asked — the command's first act after reading the env is to require the
-key, and it ended with "Missing ANTHROPIC_API_KEY. Set it in ~/curator/.env on Workshop". `CURATOR_CONTEXT_DIR` is
-not set either; the command requires it too, so Dan's statement is never silently left out. No draft was written,
-no report saved, no token spent. When both are set, the run I had planned — Halter (his own statement), Kentridge
-(the famous-auction-results test), Yiadom-Boakye (Tate pages; a market as tempting as Kentridge's), Adams (well
-documented on the allowlist) and Naude (the one with little online) — is:
+**The live run — 17 Nov, two attempts. The report is `Drafts_Report_2026-11-17.md` in the project folder.**
 
-```
-npm run draft -- --artist "Halter" --artist "Kentridge" --artist "Yiadom-Boakye" --artist "Adams" --artist "Naude" --report "~/Documents/Claude/Projects/Business Planning - Passion Assets Platform/Drafts_Report_2026-11-17.md"
-```
+*The first attempt found nothing.* With the key in `~/curator/.env` and `CURATOR_CONTEXT_DIR` set, all five came back
+"the search found nothing on the allowed sites" — though thirty searches ran and the token counts showed results
+arriving. Only Halter had text, one sentence from his statement. A probe showed why: the newer search tool
+(`web_search_20260209`) runs its searches inside a code sandbox and writes its answer from printed results, so its
+text carries no citations — and the desk takes nothing but the API's citations, by design. The fix was the basic
+search tool (`web_search_20250305`), whose results the text cites directly, passage and page; a probe on Kentridge
+then gave twelve cited passages from three searches, every one from an allowlisted host. The first attempt cost
+about $1.80.
 
-Expect about a dollar for the five (three model calls and up to six searches each) and a few dollars for all 33.
+*The second attempt is the report.*
+- **Halter** — five sentences: born in Harare in 1977, lives and works in Cape Town (ArtThrob's CV); a BFA from
+  Michaelis in 2001 (the Smithsonian); Zeitz MOCAA's words on his craft methods; his own words on *Footsack Empire*
+  and *Indlala inamanyala*, from his statement. Why he matters, in ArtThrob's words. One sentence removed for
+  length: the biography had passed 120 words. Nothing his statement does not support.
+- **Kentridge** — six sentences from Marian Goodman, Zeitz MOCAA, the Guggenheim, Apollo, The Art Newspaper and
+  ArtThrob; Tate's words on why he matters. Nothing removed. No price, no auction, no superlative of the desk's
+  own: the famous-auction-results test came back clean.
+- **Yiadom-Boakye** — five sentences, four from Tate; one removed under rule 3 and her why-they-matter removed under
+  rule 3 — both wrongly, see below; one flagged by the second reading and kept (Jack Shainman's line on which
+  collections hold her work: "touches on who owns works") — yours to judge.
+- **Adams** — three sentences (C&, blank projects, ART AFRICA, ArtThrob) and Artforum's words on why he matters. Two
+  sentences removed under rule 7: quotations the model attributed to The Art Newspaper and to blank projects that
+  are not verbatim in any cited passage. The checker did its job.
+- **Naude** — nothing on the allowed sites; "Not enough is known yet." twice; the model was not asked to write. The
+  little-online test, as the spec wanted it.
+In all: 16 requests, 30 searches, 497,549 input and 38,459 output tokens — about $3. The table was not written (the
+migration awaits your yes); the drafts live in the report. With the first attempt and two probes, about $5 today.
 
-**How to verify, when the key is there.** Run the command above and open the report. For each artist: every
-sentence ends in [n] and every [n] is a source you can open, with the passage beneath it; no sum of money, no
-auction, no market; no "most important" or "seminal" unless inside quotation marks with the source named; nothing
-about where a work is, who owns it, or you. Halter's draft rests on his own words and says nothing his statement
-does not support — his biography, if any, cites WHATIFTHEWORLD. Kentridge's says nothing of prices. Naude's is two
-true sentences and "Not enough is known yet." Then read "Removed by the desk" under each: that is the restraint.
+*What the runs taught — three removals that were the checker's fault, not the model's, fixed in this PR after the
+report was written.* (1) "the artist says" did not count as naming Halter in his own statement; now a source's
+stated role ("Dan Halter (the artist)") names it. (2) "a US dollar bill" in a collage was caught as a currency;
+now a currency word is money only with an amount beside it. (3) Hilton Als, named in the sentence and in Tate's
+passage, did not count as attribution because he is not the page's publisher; now a person or body the cited
+passage itself names counts — never the subject's own name — and "the artist" counts where the passage carries
+the artist's name. Under the refined rule the two sentences removed from Yiadom-Boakye's draft would stand. The
+report was not rerun; a rerun of the five is about $3.
 
-**Not done here.** The live run and `Drafts_Report_2026-11-17.md` (the key). The migration (your yes). Drafts about
-works (M2-02). The "ask for a draft" button. Jean's approval (one line when she is invited). Gallery MOMO and the
-Javett on the allowlist.
+**What to read in the report.** Every sentence ends in [n] and every [n] is a source you can open, with the passage
+beneath it. No sum of money, no auction, no market, on any of the five. No "most important" or "seminal" but inside
+quotation marks with the source named. Nothing about where a work is, who owns it, or you. Halter's draft rests on
+his own words and the allowlist. Kentridge's says nothing of prices. Naude's is the list's own sentence. Then
+"Removed by the desk" under each: that is the restraint, and the two wrong removals are named above.
+
+**Not done here.** The migration (your yes). A rerun under the refined attribution rule. Drafts about works
+(M2-02). The "ask for a draft" button. Jean's approval (one line when she is invited). Gallery MOMO and the Javett on
+the allowlist.
