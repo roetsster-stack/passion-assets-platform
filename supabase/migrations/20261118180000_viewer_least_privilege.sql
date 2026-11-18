@@ -13,10 +13,11 @@
 -- single work select the same columns of `items` as before. The ingest writes both halves of a
 -- work in one transaction.
 --
--- This migration moves the data inside the live database once. The order of going live — this
--- file and the code that writes both halves — is in the BUILT note of
--- docs/specs/SEC-02_viewer_least_privilege.md: the screens break in neither order; only the
--- ingest must not run between the two.
+-- This migration moves the data inside the live database once, and the move itself is in the
+-- audit log: the table's triggers, policy and grants are in place before a row is copied, so every
+-- private row's first entry reads `migration:sec-02` (the cold review of PR #13, should-fix 3).
+-- The order of going live — M2-04b first, then this, then the migrations, then one ingest — is in
+-- the BUILT note of docs/specs/SEC-02_viewer_least_privilege.md.
 
 select set_config('app.actor', 'migration:sec-02', false);
 
@@ -30,11 +31,14 @@ create table public.item_private (
   purchase_currency text,
   purchase_price_zar numeric(14, 2),
 
-  -- valuation — stored, never shown (principle 1)
+  -- valuation — stored, never shown (principle 1). Airtable's "Last Modified" watches Current Value
+  -- only, so it is the date the value was last set: the valuation's own date, and it moves with it
+  -- (the review's blocker 1).
   current_value numeric(14, 2),
   current_value_currency text,
   valuation_date date,
   valuation_source text,
+  airtable_modified_at timestamptz,
 
   -- place and state — sensitive classes
   location text,
@@ -55,42 +59,8 @@ create table public.item_private (
 
 create index item_private_collection_idx on public.item_private (collection_id);
 
--- The data moves: one private row per work, from the columns `items` carried until now.
-insert into public.item_private (
-  item_id, collection_id,
-  purchase_price, purchase_currency, purchase_price_zar,
-  current_value, current_value_currency, valuation_date, valuation_source,
-  location, location_tags, condition_note,
-  admin_notes, comments_raw, notes_raw,
-  airtable_raw, created_at, updated_at
-)
-select
-  id, collection_id,
-  purchase_price, purchase_currency, purchase_price_zar,
-  current_value, current_value_currency, valuation_date, valuation_source,
-  location, location_tags, condition_note,
-  admin_notes, comments_raw, notes_raw,
-  airtable_raw, created_at, updated_at
-from public.items;
-
--- And leave `items` with what any member may read. New sensitive fields (M2-02, M2-03: location,
--- condition, valuation) are added to item_private, never here.
-alter table public.items
-  drop column purchase_price,
-  drop column purchase_currency,
-  drop column purchase_price_zar,
-  drop column current_value,
-  drop column current_value_currency,
-  drop column valuation_date,
-  drop column valuation_source,
-  drop column location,
-  drop column location_tags,
-  drop column condition_note,
-  drop column admin_notes,
-  drop column comments_raw,
-  drop column notes_raw,
-  drop column airtable_raw;
-
+-- Triggers, row-level security, the policy and the grants first, so that the move below is audited
+-- and the table is never open, not even for the length of this migration.
 create trigger item_private_set_updated_at before update on public.item_private
   for each row execute function public.set_updated_at();
 create trigger item_private_audit after insert or update or delete on public.item_private
@@ -108,6 +78,45 @@ revoke all on public.item_private from anon, public;
 revoke insert, update, delete, truncate, references, trigger on public.item_private from authenticated;
 grant select on public.item_private to authenticated;
 grant all on public.item_private to service_role;
+
+-- The data moves: one private row per work, from the columns `items` carried until now — every
+-- insert written to the audit log as `migration:sec-02`.
+insert into public.item_private (
+  item_id, collection_id,
+  purchase_price, purchase_currency, purchase_price_zar,
+  current_value, current_value_currency, valuation_date, valuation_source, airtable_modified_at,
+  location, location_tags, condition_note,
+  admin_notes, comments_raw, notes_raw,
+  airtable_raw, created_at, updated_at
+)
+select
+  id, collection_id,
+  purchase_price, purchase_currency, purchase_price_zar,
+  current_value, current_value_currency, valuation_date, valuation_source, airtable_modified_at,
+  location, location_tags, condition_note,
+  admin_notes, comments_raw, notes_raw,
+  airtable_raw, created_at, updated_at
+from public.items;
+
+-- And leave `items` with what any member may read. New sensitive fields (M2-02, M2-03: location,
+-- condition, valuation) are added to item_private, never here; the database test holds the list of
+-- what `items` may carry, so a new column fails CI until it is placed on purpose.
+alter table public.items
+  drop column purchase_price,
+  drop column purchase_currency,
+  drop column purchase_price_zar,
+  drop column current_value,
+  drop column current_value_currency,
+  drop column valuation_date,
+  drop column valuation_source,
+  drop column airtable_modified_at,
+  drop column location,
+  drop column location_tags,
+  drop column condition_note,
+  drop column admin_notes,
+  drop column comments_raw,
+  drop column notes_raw,
+  drop column airtable_raw;
 
 -- The owners, who owns what, and the documents: the owner's alone from here on. An advisor reads
 -- none until the advisor door is specced; a certificate of authenticity could be opened to viewers

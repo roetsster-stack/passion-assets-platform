@@ -90,15 +90,15 @@ const ITEM_COLUMNS = [
   "has_invoice",
   "has_coa",
   "high_res_note",
-  "airtable_modified_at",
   "content_hash",
   "source_removed_at",
 ] as const;
 
 /**
- * The owner-only half — the columns of `item_private` (SEC-02): the money, the valuation, place and
- * state, the private notes, and the record as imported. One row per work, written in the same
- * transaction as the visible half, readable by the owner alone.
+ * The owner-only half — the columns of `item_private` (SEC-02): the money, the valuation and its date
+ * (Airtable's "Last Modified" watches Current Value only, so it is the date the value was last set —
+ * the review of PR #13, blocker 1), place and state, the private notes, and the record as imported.
+ * One row per work, written in the same transaction as the visible half, readable by the owner alone.
  */
 const PRIVATE_COLUMNS = [
   "purchase_price",
@@ -107,6 +107,7 @@ const PRIVATE_COLUMNS = [
   "current_value",
   "current_value_currency",
   "valuation_date",
+  "airtable_modified_at",
   "location",
   "location_tags",
   "condition_note",
@@ -138,7 +139,6 @@ function itemValues(row: ItemRow, artistId: string | null): unknown[] {
     row.has_invoice,
     row.has_coa,
     row.high_res_note,
-    row.airtable_modified_at,
     row.content_hash,
     null, // source_removed_at: present in the source, so not removed
   ];
@@ -152,6 +152,7 @@ function privateValues(row: ItemRow): unknown[] {
     row.current_value,
     row.current_value_currency,
     row.valuation_date,
+    row.airtable_modified_at,
     row.location,
     row.location_tags,
     row.condition_note,
@@ -393,8 +394,13 @@ async function syncItems(
   artistIds: Map<string, string>,
   counts: Counts,
 ): Promise<Map<string, string>> {
-  const existing = await db.query<{ id: string; airtable_record_id: string; content_hash: string | null; artist_id: string | null; source_removed_at: Date | null }>(
-    "select id, airtable_record_id, content_hash, artist_id, source_removed_at from items where collection_id = $1 and airtable_record_id is not null",
+  // Each work with whether its owner-only half is there: a work whose private row is missing is written
+  // again whatever its hash (the review's nit 13). Before SEC-02's migration this query fails, and with it
+  // the whole run, before anything is written.
+  const existing = await db.query<{ id: string; airtable_record_id: string; content_hash: string | null; artist_id: string | null; source_removed_at: Date | null; has_private: boolean }>(
+    `select i.id, i.airtable_record_id, i.content_hash, i.artist_id, i.source_removed_at, p.item_id is not null as has_private
+       from items i left join item_private p on p.item_id = i.id
+      where i.collection_id = $1 and i.airtable_record_id is not null`,
     [collectionId],
   );
   const byRec = new Map(existing.rows.map((r) => [r.airtable_record_id, r]));
@@ -413,8 +419,9 @@ async function syncItems(
     seen.add(row.airtable_record_id);
     const artistId = row.artist_key ? (artistIds.get(row.artist_key) ?? null) : null;
     const cur = byRec.get(row.airtable_record_id);
-    // The content hash covers the whole mapped record, both halves: unchanged means neither is touched.
-    if (cur && cur.content_hash === row.content_hash && cur.artist_id === artistId && cur.source_removed_at === null) {
+    // The content hash covers the whole mapped record, both halves: unchanged means neither is touched — unless
+    // the private half is missing, in which case the work is written again.
+    if (cur && cur.content_hash === row.content_hash && cur.artist_id === artistId && cur.source_removed_at === null && cur.has_private) {
       ids.set(row.airtable_record_id, cur.id);
       counts.unchanged++;
       continue;

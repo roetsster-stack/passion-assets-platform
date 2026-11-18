@@ -35,7 +35,13 @@ describe.skipIf(!url)("M1-01 · the record arrives", () => {
   const USER_B = "22222222-2222-4222-8222-222222222222"; // a stranger
   const ALL_TABLES = ["collections", "collection_members", "owners", "artists", "items", "item_private", "item_owners", "provenance_events", "images", "documents", "ingest_runs", "audit_log", "drafts"];
   /** The owner-only half of a work (SEC-02): off `items`, on `item_private`, read by the owner alone. */
-  const PRIVATE = ["purchase_price", "purchase_currency", "purchase_price_zar", "current_value", "current_value_currency", "valuation_date", "valuation_source", "location", "location_tags", "condition_note", "admin_notes", "comments_raw", "notes_raw", "airtable_raw"];
+  const PRIVATE = ["purchase_price", "purchase_currency", "purchase_price_zar", "current_value", "current_value_currency", "valuation_date", "valuation_source", "airtable_modified_at", "location", "location_tags", "condition_note", "admin_notes", "comments_raw", "notes_raw", "airtable_raw"];
+  /** Everything `items` may carry — the whole list, so a new column fails here until it is placed on purpose (SEC-02, the review's should-fix 4). */
+  const ITEMS_COLUMNS = [
+    "id", "collection_id", "category", "artist_id", "title", "year_text", "year", "medium", "materials", "dimensions_framed", "dimensions_unframed", "edition",
+    "acquired_on", "acquired_from", "credit_gallery", "status", "sold_year", "collectors_story", "work_context", "links", "has_high_res", "has_low_res", "has_invoice",
+    "has_coa", "high_res_note", "visibility", "airtable_record_id", "content_hash", "source_removed_at", "created_at", "updated_at",
+  ];
 
   function deps(overrides: Partial<IngestDeps> = {}): IngestDeps {
     return {
@@ -86,7 +92,7 @@ describe.skipIf(!url)("M1-01 · the record arrives", () => {
       if (file.startsWith("20261118180000")) privateSeed = await seedPrivateFields(migrationSeed.collectionId);
       await db.query(readFileSync(path.join(dir, file), "utf8"));
       if (file.startsWith("20261103150000")) migrationSeed.after = await readSeed(migrationSeed.itemId);
-      if (file.startsWith("20261118180000")) privateSeed.after = await readPrivateSeed(privateSeed.itemId);
+      if (file.startsWith("20261118180000")) privateSeed.after = await readPrivateSeed(privateSeed.itemId, privateSeed.emptyId);
     }
     await db.query("delete from collections where id = $1", [migrationSeed.collectionId]);
     await db.query("delete from audit_log");
@@ -113,27 +119,39 @@ describe.skipIf(!url)("M1-01 · the record arrives", () => {
     return (await db.query<{ storage_key: string; is_hero: boolean }>("select storage_key, is_hero from images where item_id = $1 order by created_at", [itemId])).rows;
   }
 
-  let privateSeed: { itemId: string; after: { moved: Record<string, unknown> | null; stillOnItems: string[] } };
+  let privateSeed: { itemId: string; emptyId: string; after: { moved: Record<string, unknown> | null; empty: Record<string, unknown> | null; stillOnItems: string[]; audited: number } };
+  // Every one of the fifteen fields set on one work, and a second work with none of them (the review's nit 10).
   async function seedPrivateFields(collectionId: string) {
     const i = await db.query<{ id: string }>(
-      `insert into items (collection_id, title, purchase_price, purchase_currency, current_value, location, location_tags, condition_note, admin_notes, comments_raw, airtable_raw)
-       values ($1, 'Seed with a price', 1234.56, 'USD', 2000, 'Hilltop House', '{"Hilltop House","Framed"}', 'A scratch', 'Flagged', 'A comment', '{"fields": {"x": 1}}') returning id`,
+      `insert into items (collection_id, title, purchase_price, purchase_currency, purchase_price_zar, current_value, current_value_currency, valuation_date, valuation_source, airtable_modified_at,
+                          location, location_tags, condition_note, admin_notes, comments_raw, notes_raw, airtable_raw)
+       values ($1, 'Seed with a price', 1234.56, 'USD', 22000.50, 2000, 'USD', '2025-06-30', 'Airtable', '2025-06-30T10:00:00Z',
+               'Hilltop House', '{"Hilltop House","Framed"}', 'A scratch', 'Flagged', 'A comment', 'A note', '{"fields": {"x": 1}}') returning id`,
       [collectionId],
     );
-    return { itemId: i.rows[0].id, after: { moved: null, stillOnItems: [] } };
+    const e = await db.query<{ id: string }>("insert into items (collection_id, title) values ($1, 'Seed with nothing private') returning id", [collectionId]);
+    return { itemId: i.rows[0].id, emptyId: e.rows[0].id, after: { moved: null, empty: null, stillOnItems: [], audited: 0 } };
   }
-  async function readPrivateSeed(itemId: string) {
-    const moved =
-      (
-        await db.query(
-          "select purchase_price::text, purchase_currency, current_value::text, location, location_tags, condition_note, admin_notes, comments_raw, airtable_raw from item_private where item_id = $1",
-          [itemId],
-        )
-      ).rows[0] ?? null;
+  const PRIVATE_ROW = `select purchase_price::text, purchase_currency, purchase_price_zar::text, current_value::text, current_value_currency, valuation_date::text, valuation_source,
+                              to_char(airtable_modified_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as airtable_modified_at,
+                              location, location_tags, condition_note, admin_notes, comments_raw, notes_raw, airtable_raw
+                         from item_private where item_id = $1`;
+  async function readPrivateSeed(itemId: string, emptyId: string) {
+    const moved = (await db.query(PRIVATE_ROW, [itemId])).rows[0] ?? null;
+    const empty = (await db.query(PRIVATE_ROW, [emptyId])).rows[0] ?? null;
     const stillOnItems = (
       await db.query<{ column_name: string }>("select column_name from information_schema.columns where table_schema = 'public' and table_name = 'items' and column_name = any($1::text[])", [PRIVATE])
     ).rows.map((r) => r.column_name);
-    return { moved, stillOnItems };
+    // the move itself is in the audit log, as the migration (the review's should-fix 3)
+    const audited = Number(
+      (
+        await db.query<{ n: string }>(
+          "select count(*) n from audit_log l join item_private p on p.id::text = l.row_id::text where l.table_name = 'item_private' and l.action = 'insert' and l.actor_label = 'migration:sec-02' and p.item_id = any($1::uuid[])",
+          [[itemId, emptyId]],
+        )
+      ).rows[0].n,
+    );
+    return { moved, empty, stillOnItems, audited };
   }
 
   it("M1-02a · the migration clears a work's second picture before it forbids one, so db push succeeds on main's data", () => {
@@ -143,19 +161,45 @@ describe.skipIf(!url)("M1-01 · the record arrives", () => {
     ]);
   });
 
-  it("SEC-02 · the migration moves a work's money, place and notes into the owner-only table and takes the columns off items", () => {
+  it("SEC-02 · the migration moves a work's money, valuation and its date, place and notes into the owner-only table — audited as the migration — and takes the columns off items", () => {
     expect(privateSeed.after.stillOnItems).toEqual([]);
     expect(privateSeed.after.moved).toEqual({
       purchase_price: "1234.56",
       purchase_currency: "USD",
+      purchase_price_zar: "22000.50",
       current_value: "2000.00",
+      current_value_currency: "USD",
+      valuation_date: "2025-06-30",
+      valuation_source: "Airtable",
+      airtable_modified_at: "2025-06-30T10:00:00Z",
       location: "Hilltop House",
       location_tags: ["Hilltop House", "Framed"],
       condition_note: "A scratch",
       admin_notes: "Flagged",
       comments_raw: "A comment",
+      notes_raw: "A note",
       airtable_raw: { fields: { x: 1 } },
     });
+    // a work with nothing private still gets its row, empty
+    expect(privateSeed.after.empty).toEqual({
+      purchase_price: null,
+      purchase_currency: null,
+      purchase_price_zar: null,
+      current_value: null,
+      current_value_currency: null,
+      valuation_date: null,
+      valuation_source: null,
+      airtable_modified_at: null,
+      location: null,
+      location_tags: [],
+      condition_note: null,
+      admin_notes: null,
+      comments_raw: null,
+      notes_raw: null,
+      airtable_raw: null,
+    });
+    // both inserts are in the audit log, as the migration
+    expect(privateSeed.after.audited).toBe(2);
   });
 
   it("first run brings everything across; the second run changes nothing", async () => {
@@ -389,7 +433,8 @@ describe.skipIf(!url)("M1-01 · the record arrives", () => {
     expect(await asUser(USER_C, "authenticated", pictures)).toEqual(await asUser(USER_A, "authenticated", pictures));
 
     // What the register knows: the owner's alone, and only with both factors. A viewer, an advisor, a stranger, a half-signed-in owner: none of it.
-    for (const t of ["item_private", "owners", "item_owners", "documents"]) {
+    // The audit log — which keeps the old `items` rows with their values — and the run log are in the loop too (the review's should-fix 5).
+    for (const t of ["item_private", "owners", "item_owners", "documents", "audit_log", "ingest_runs"]) {
       const count = `select count(*)::int as n from ${t}`;
       expect((await asUser(USER_A, "authenticated", count))[0].n, `${t} for the owner`).toBeGreaterThan(0);
       for (const u of [USER_C, USER_D, USER_B]) expect(await asUser(u, "authenticated", count), `${t} for ${u}`).toEqual([{ n: 0 }]);
@@ -405,6 +450,9 @@ describe.skipIf(!url)("M1-01 · the record arrives", () => {
     expect(await asUser(USER_C, "authenticated", `select kind, storage_key from documents where item_id = '${item}'`)).toEqual([]);
     // And the columns are not on items at all, for anyone: a screen that asked for them would get an error, not a value.
     for (const c of PRIVATE) await expect(asUser(USER_A, "authenticated", `select ${c} from items limit 1`), c).rejects.toThrow(/does not exist/);
+    // What `items` carries is exactly the list above: a column added to it fails here until someone places it on purpose.
+    const columns = (await db.query<{ column_name: string }>("select column_name from information_schema.columns where table_schema = 'public' and table_name = 'items'")).rows.map((r) => r.column_name);
+    expect([...columns].sort()).toEqual([...ITEMS_COLUMNS].sort());
 
     // The ingest still changes nothing on a second run; both halves are audited as the ingest's writes.
     const before = Number((await db.query<{ n: string }>("select count(*) n from audit_log where table_name = 'item_private'")).rows[0].n);
@@ -413,6 +461,13 @@ describe.skipIf(!url)("M1-01 · the record arrives", () => {
     expect(again.items).toEqual({ created: 0, updated: 0, unchanged: 3, removed: 0 });
     expect(Number((await db.query<{ n: string }>("select count(*) n from audit_log where table_name = 'item_private'")).rows[0].n)).toBe(before);
     expect((await db.query<{ l: string }>("select distinct actor_label l from audit_log where table_name = 'item_private'")).rows.map((r) => r.l)).toEqual(["ingest:airtable"]);
+
+    // A work whose private row went missing is written again on the next run, whatever its hash (the review's nit 13).
+    await db.query("delete from item_private where item_id = $1", [item]);
+    const repaired = await runIngest(deps({ store: createMemoryStore() }));
+    expect(repaired.items).toEqual({ created: 0, updated: 1, unchanged: 2, removed: 0 });
+    expect(await asUser(USER_A, "authenticated", `select item_id from item_private where item_id = '${item}'`)).toHaveLength(1);
+    expect(await asUser(USER_C, "authenticated", `select item_id from item_private where item_id = '${item}'`)).toEqual([]);
   });
 
   it("M1-02a · the ladder: every picture's renditions cut once; a master becomes the picture and is never returned to a page", async () => {
