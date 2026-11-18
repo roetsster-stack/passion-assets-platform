@@ -92,7 +92,10 @@ under it into `Drafts_Report_2026-11-18.md` in the project folder (below). The d
   text — a supplied statement whose author line says "(the artist)", or a passage in which the artist is the one shown
   speaking those words — and only when the sentence gives the words to the artist ("the artist", or the artist's
   name). ART AFRICA's "spoke of his long illness" fails even quoted exactly; a critic's remark about someone's father
-  fails even quoted exactly; an artist on their own identity, in their own interview, attributed to them, passes. Added
+  fails even quoted exactly; an artist on their own identity, in their own interview, attributed to them, passes.
+  _Corrected 18 Nov, second round: as built here this did not always hold — a critic's remark quoted after the artist
+  had spoken passed when given to the artist, and a relative with the surname or a critic with the given name counted
+  as the artist (the review of PR #12, blocker 1). The second round's note below says what holds now._ Added
   to the private-life words: father, mother, parents, brother, sister, siblings, partner, son, daughter, family,
   grandparents, uncle, aunt, and the words of sexuality. "me" joined the first-person list.
 - *Blocker 2 — naming a source was too easy.* A source is named by its publisher's whole name; by a run of two or more
@@ -103,6 +106,10 @@ under it into `Drafts_Report_2026-11-18.md` in the project folder (below). The d
   only where the passage shows them speaking — a name of two or more words beside a speech verb ("Hilton Als has
   written", "according to Hilton Als", "in Hilton Als's words") — and only for the words nearest that marker, so a
   critic's line on a page that also quotes the artist cannot be given to the artist, nor the artist's to the critic.
+  _Corrected 18 Nov, second round: as built here, naming the page was enough on its own, before the speaker was
+  looked at, so a critic's line could be given to the artist and the artist's to the critic beside the page's name
+  (the review of PR #12, blocker 2); and a common-word phrase of a publisher's name, or a first name, still named it
+  (should-fix 1). Both fixed in the second round, below._
   A place, a prize or a bare mention never names anyone: "Living in Cape Town, he is 'the most…'" fails. "The artist"
   counts only for the artist's own words — the supplied statement, or a passage where the artist is shown speaking —
   so Zeitz MOCAA's "celebrated internationally" can no longer be put in Kentridge's mouth.
@@ -182,9 +189,11 @@ name is tested beside the planted faults, not among them; that the debated-meani
 _Corrected 18 Nov_ and left beside the original.
 
 **Tests** — 96 in `tests/drafting/` (59 before), no key, no network; 239 passing and 12 skipped (the database tests,
-CI only), 251 in all; lint, typecheck and build pass. Every bypass and missing phrasing the review listed is a planted
-fault with its rule — forty bad sentences now, the review's own examples among them word for word — and ten good ones
-come through clean, among them the critic named on a museum's page, the artist's own words given to the artist, a
+CI only), 251 in all; lint, typecheck and build pass. Every bypass and missing phrasing the review listed has a test:
+forty planted faults with their rules, the review's own examples among them (the Cape Town example reworded), the
+rest tested beside the planted list — _Corrected 18 Nov, second round: not all "among the planted faults, word for
+word", as this first said; and "estimated to reach" was on the list but tested nowhere until the second round_ — and
+ten good ones come through clean, among them the critic named on a museum's page, the artist's own words given to the artist, a
 quantity ("Most of her works…") and a date ("Her most recent show…"). The database test tries each half of a
 decision and the delete of an artist with a draft.
 
@@ -207,8 +216,9 @@ and read "Not enough is known yet.", as the desk now writes instead of a blank. 
 kept in the session's scratch folder, not in the project folder.
 
 *The second attempt is the report.*
-- **Halter** — eight sentences, about 245 words, in the four moves: Harare 1977, Cape Town, the BFA (the Smithsonian
-  and ArtThrob); how he works, in WHATIFTHEWORLD's words on craft traditions and hand-cut paper strips; what he
+- **Halter** — eight sentences, 233 words (_corrected 18 Nov, second round: not "about 245"_), in the four moves:
+  Harare 1977, Cape Town (the Smithsonian and ArtThrob), the BFA (Contemporary And — _corrected: not the Smithsonian
+  and ArtThrob, as this first said_); how he works, in WHATIFTHEWORLD's words on craft traditions and hand-cut paper strips; what he
   returns to, in his own statements on *Indlala inamanyala*, *Kimberly Latrice Jones*, *Footsack Empire* and *What is
   Happening in America?*, each "Halter writes" or "in Halter's own statement"; where he sits, WHATIFTHEWORLD's framing
   of colonialism and *The Truth Lies Here*. One sentence removed, the exhibitions list, for length. Why he matters:
@@ -229,7 +239,7 @@ kept in the session's scratch folder, not in the project folder.
   and instinctive bursts." — verbatim but for the full stop the model put inside the quotation marks where Tate has a
   comma. One flagged and kept: whether "it" in the Tate passage means her way of working in general — yours to read.
   Why she matters: Tate, then Hyperallergic.
-- **Adams** — nine sentences, about 250 words: Cape Town 1982, the Ruth Prowse diploma; textiles and installation
+- **Adams** — nine sentences, 228 words (_corrected 18 Nov, second round: not "about 250"_): Cape Town 1982, the Ruth Prowse diploma; textiles and installation
   (The Art Newspaper), the weave described (Artforum), Google Earth (ART AFRICA), the *Vinyl* series (ArtThrob); his
   own words from Frieze, blank projects and ART AFRICA, each with the page named; Hyperallergic on *Kicking Dust* and
   "religion, race and domestic life". Nothing about his family, health, relationships or sexuality, in anyone's words.
@@ -257,3 +267,113 @@ spec copy in the project folder, `specs/M2-04_prohibition_list.md`, still carrie
 section — the repository's copy and the page were changed together, as the test requires; the project folder's is
 yours to change. The review's aside on `artist_id` and `collection_id` (above). Gallery MOMO and the Javett on the
 allowlist.
+
+---
+
+## BUILT — 18 Nov 2026, second round: the cold review of PR #12, branch `m2-04b-checker`
+
+_A note to Michael from the session that built it. The review's two blockers, should-fixes 1 to 3 and the nits you
+chose are fixed, and your four rules of 18 Nov are in; the five were run again into `Drafts_Report_2026-11-18b.md` in
+the project folder. The drafts migration is still not applied._
+
+**The checker (`src/lib/drafting/rules.ts`).**
+- *Blocker 1 — the artist's own words.* A speaker counts as the artist only by the artist's own whole name ("Igshaan
+  Adams", "William Kentridge") or by the surname alone: Sydney Kentridge is not William, Dan Cameron is not Dan Halter.
+  The speaker of quoted words is found in the same sentence of the passage — the nearest marker before them, else the
+  first after them — never in an earlier sentence, and a full stop inside a quotation does not end the sentence around
+  it. The journalist's form, "…," says Igshaan Adams, now counts as a marker. Every example in the review is a test:
+  the critic's quotation after the artist had spoken, the writer's narration after the artist speaks, the relative
+  with the surname, the critic with the given name.
+- *Blocker 2 — the page's name gave anyone's words to anyone.* Attribution now looks at who spoke first. Where the
+  passage shows who spoke the quoted words, the sentence may give them to nobody else: a critic's superlative in the
+  artist's mouth, or the artist's words given to the critic, fails under rule 7 — "a quotation given to the artist,
+  where the passage shows Jane Doe speaking" — whether or not the page is named beside it. The sentence may name that
+  speaker, or name the page and no speaker. Where the passage shows nobody, the page must be named, and a speaker the
+  sentence claims is left to the second reading — so "Kentridge told The Art Newspaper" beside a bare citation passes
+  the checker and is the reader's to judge, as the reader did this run with "tells Contemporary And". The sentence's
+  own claim is read the way the passage is: the artist, "the artist" or a named person beside a speech verb; a bare
+  mention of a name claims nothing.
+- *Should-fix 1 — common phrases and first names.* A source is named as written, capitals included: a name of several
+  words may start with either case at a sentence's start ("The Met", "Blank projects"), a single word never ("Tate",
+  not "tate"; "Everard Read", not "everard read"). A run of a publisher's words counts only when not all of them are
+  generic — "South African history", "History Online", "contemporary and", "the metropolitan", "Victoria and" and
+  "Print Gallery" name nothing now; the whole name always does. A distinctive word that stands before another
+  ("Jack" Shainman, "Marian" Goodman, "Cécile" Fakhoury) is a first name and never names the gallery alone.
+- *Should-fix 2 — hyphens.* A hyphen is no longer part of a word, and a space in a phrase may be a hyphen: ex-wife,
+  half-brother, mother-in-law, step-father, world-famous, much-lauded, internationally-acclaimed, highly-regarded,
+  sell-out, sold-out and high-value are caught. Added to the private-life words: child, spouse, stepfather,
+  stepmother, fiancé(e). "mother-of-pearl" is a material and passes. The cost, said plainly: "as a child" is caught.
+- *The nits.* "best known for" is not a rank. "Phillips" is an auction house only beside a word of the auction room
+  (auction, sale, lot, hammer, estimate, bid, consigned); Lisa Phillips passes. A second name in parentheses with
+  spaces — "(Zeitz Museum of Contemporary Art Africa)" — counts whole and by its own words, and the allowlist's preface
+  says so. "estimated to reach" has its test.
+- *Your (a) — lifted text.* Ten or more words of any source in a row, outside quotation marks and outside a title in
+  italics, fail under rule 7: "14 words of source [29] in a row without quotation marks — quote them, or rephrase".
+  Compared word by word with capitals and punctuation aside, so a changed comma hides nothing; a run never crosses a
+  quotation; checked against every source, not only the ones the sentence cites.
+
+**The desk (`desk.ts`, `model.ts`, `anthropic.ts`).** *Your (b):* a biography still over 250 words after the second
+reading is sent back to the model once — under the same brief, with the sources, the limit and the four moves named:
+"cut detail, not moves; add nothing" — and the shortened text is new text: it goes through the sources check, the
+rules and the reading again before the length cut, which then takes only what is still over. The draft's notes say
+what happened ("…the model shortened it once, to N"); a model that declines does not fail the draft — the cut stands
+and the note says so. Why they matter is never shortened, only cut. *The nit:* a sentence the reading flagged and
+the cut then removed no longer appears under "Flagged (kept)". *Your (c) and (d), in the brief and in the second
+reader's remit:* why they matter rests on a museum's or public gallery's own text, a named critic or curator, or the
+artist — never a press release, an exhibition announcement or a promotional line, whoever carries it; where an
+artist lives and works is a city and a country, never a studio, a neighbourhood or an address. The brief also carries
+blocker 2's rule in words ("give them to that person and to no one else") and (a) ("ten or more of a source's words
+in a row are a quotation or nothing").
+
+**The first round's note, corrected (should-fix 3).** Five passages above now carry _Corrected 18 Nov, second round_:
+the two claims the blockers disproved, the planted-faults claim, Halter's degree (Contemporary And, not the
+Smithsonian and ArtThrob) and the two word counts (233 and 228).
+
+**Tests** — 121 in `tests/drafting/` (96 before): 88 for the checker, every probe of the review among them and
+forty-nine planted faults, the review's own sentences included, with twelve good ones clean; the desk's shortening
+tried three ways (shortened and read again, with a planted fault in the shorter text removed; still over and cut,
+the flag dropped with the cut sentence; the model declining); the adapter's new call and the prompt lines. 264
+passing and 12 skipped (the database tests, CI only), 276 in all; lint, typecheck and build pass.
+
+**The live run — the report is `Drafts_Report_2026-11-18b.md`.** List `809c81d6…`, forty sites, eight searches an
+artist: 20 requests, 40 searches, 719,355 input and 64,276 output tokens — about $4.60; the day's three runs, about
+$14. No biography needed shortening: all four came in under 250 after the reading, so the shorten-once path has run
+only in the tests.
+- **Halter** — seven sentences, 193 words: how he works and what he returns to, from C&, ART AFRICA, ArtThrob and his
+  own statements, the exhibitions at WHATIFTHEWORLD. The checker removed two lifted sentences — the opening "born in
+  Harare… B.F.A. in 2001" carried fourteen words of a CV page in a row, and "at the South African National Gallery,
+  curated by Simon Njami" ten — so the draft has no first move now: his birthplace and training went with them. The
+  reading removed an unnamed ArtThrob essay's reading of the work (rule 3). Why he matters: Zeitz MOCAA's words, then
+  his own ("fabric and fabrication").
+- **Kentridge** — eight sentences, 179 words: the Guggenheim on "poor-man's animation", ArtReview on charcoal, MoMA
+  on series, the catalogue lines, Apollo on *Sleeper Red*, and "In the process of making, a meaning will emerge" given
+  to Kentridge in Hyperallergic — the passage shows him saying it, and the checker now knows. Two lifted sentences
+  removed: his degree (thirteen words of a page in a row) and the 2001 survey (ten). Why he matters: the Guggenheim and
+  a Tate paper.
+- **Yiadom-Boakye** — nine sentences, 226 words, how she paints throughout, the page named beside her every
+  quotation. The reading removed "tells Contemporary And" (the passage says only "the artist says"), Hyperallergic's
+  reading of the work (rule 3), and from why she matters a causal reading of her sitters; one sentence flagged and
+  kept, the Whitechapel "part of that" again. Why she matters: Tate's exhibition guide, one sentence.
+- **Adams** — seven sentences, 180 words: Cape Town 1982, the Ruth Prowse diploma; the vinyl and the floors, from
+  ArtThrob, Artforum and ART AFRICA; his own words on the ICA/Boston wall. Removed: a sentence lifting ten words of
+  blank projects' text, one with a title in quotation marks ("Kicking Dust" is not a quotation), and Frieze's "all
+  personally connected to him" under rule 8, by the reading. Why he matters: the model wrote "Not enough is known
+  yet." — under your (c) the ICA/Boston promotional line that carried it last time no longer counts, and no museum,
+  critic or curator in the passages says why.
+- **Naude** — "Not enough is known yet." twice, as before.
+
+**Read against the three tests.** True: every sentence cites, and the lifted-text rule has made the paraphrases real
+paraphrases. Useful in front of the work: each of the four says how the artist works and what they return to. Clear
+whose voice: the artist's words are given to the artist only where the page shows the artist speaking, or with the
+page named and the reading's judgment on the speaker.
+
+**What the run taught, left for the next round.** The lifted-text rule costs the first move most: "born in 1955 in
+Johannesburg" and "a degree in Politics and African Studies at the University of the Witwatersrand" have few ways
+to be said, and a CV page says them in a row; "B.F.A." counts as three words. The model could be told to quote the
+CV line, or to write the first move from two sources. A field that is only "Not enough is known yet." is still sent
+to the reading (Naude: two small requests). Terminal punctuation inside a closing quotation mark still fails the
+exact match.
+
+**Not done here.** The review's nits on two connectors in a row ("Jan van der Merwe"), on a shop under a path and on
+a test for the ingest's orphan guard — not in your list. The migration (your yes, after this merges). Gallery MOMO and
+the Javett on the allowlist.

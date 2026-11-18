@@ -16,6 +16,9 @@ export type DraftAnswer = { biography: Sentence[]; whyTheyMatter: Sentence[] };
 export type ReadingRequest = { artist: ArtistInput; list: ProhibitionList; field: Field; sentences: Sentence[]; sources: Source[] };
 export type Verdict = { index: number; verdict: "keep" | "remove" | "flag"; rule: number | null; why: string };
 
+/** A field that runs past its limit, to be shortened to `limit` words keeping its four moves (18 Nov). */
+export type ShortenRequest = { artist: ArtistInput; sources: Source[]; list: ProhibitionList; field: Field; sentences: Sentence[]; limit: number };
+
 export interface Model {
   /** The name recorded on every draft when the model answers nothing more exact. */
   readonly name: string;
@@ -25,6 +28,8 @@ export interface Model {
   draft(req: DraftRequest): Promise<{ answer: DraftAnswer; model: string; usage: Usage }>;
   /** The second reading against the list: a verdict on every sentence. */
   read(req: ReadingRequest): Promise<{ verdicts: Verdict[]; usage: Usage }>;
+  /** The same sentences shortened to the limit, the four moves kept — asked once, when a biography runs long; the desk checks and reads the answer again. */
+  shorten(req: ShortenRequest): Promise<{ sentences: Sentence[]; usage: Usage }>;
 }
 
 /** The desk's own failure: the model declined, or answered in a shape the desk cannot read. */
@@ -48,6 +53,12 @@ export function asDraftAnswer(x: unknown): DraftAnswer {
   if (!x || typeof x !== "object") throw new DeskError("the draft answer is not an object");
   const o = x as Record<string, unknown>;
   return { biography: asSentences(o.biography, "biography"), whyTheyMatter: asSentences(o.why_they_matter ?? o.whyTheyMatter, "why they matter") };
+}
+
+/** The shortened field from untrusted JSON: `{ sentences: [...] }`. */
+export function asShortened(x: unknown): Sentence[] {
+  if (!x || typeof x !== "object") throw new DeskError("the shortening is not an object");
+  return asSentences((x as Record<string, unknown>).sentences, "the shortening");
 }
 
 export function asVerdicts(x: unknown): Verdict[] {

@@ -1,18 +1,21 @@
 /**
- * M2-04 · The rule checker, in plain code — made strict in M2-04b after the cold review of PR #11:
- * money and the market's facts (2) and the sensitive classes (5) nowhere, quoted or not; the words
- * of the market (2) and rank (6) only inside an attributed quotation; a living person's private life
- * (8) only in the artist's own words, given to the artist; invented voices (7); every sentence
- * sourced (4); the exact-match test on every quotation, whole words only (7, and 6 as Michael wrote
- * it); attribution by a distinctive name, by a speaker the passage shows, or by the artist for their
- * own words — never by a place, a common word or the subject's name (3); the lengths as real
- * sentences (10). A set of hand-written bad drafts, each with one planted fault — the review's
- * bypasses among them — and the checker catches every one; a set of good ones comes through clean.
+ * M2-04 · The rule checker, in plain code — made strict in M2-04b after the cold reviews of PR #11
+ * and PR #12: money and the market's facts (2) and the sensitive classes (5) nowhere, quoted or
+ * not; the words of the market (2) and rank (6) only inside an attributed quotation; a living
+ * person's private life (8) only in the artist's own words, given to the artist — the artist by
+ * their own name, the speaker from the same sentence of the passage; invented voices (7), among
+ * them a quotation given to the wrong speaker and ten words of a source in a row outside quotation
+ * marks; every sentence sourced (4); the exact-match test on every quotation, whole words only (7,
+ * and 6 as Michael wrote it); attribution by a distinctive name as written, by a speaker the
+ * passage shows, or by the artist for their own words — never by a place, a common word or phrase,
+ * a first name or the subject's name (3); the lengths as real sentences (10). A set of hand-written
+ * bad drafts, each with one planted fault — the reviews' bypasses among them — and the checker
+ * catches every one; a set of good ones comes through clean.
  */
 import { describe, expect, it } from "vitest";
 import {
-  artistsOwn, attributes, checkField, checkSentence, type Context, italicsIn, MARKET_FACTS, namesOf, normalise, placeOf, PRIVATE_WORDS,
-  quotationsIn, RANK_WORDS, sentenceCount, speakersIn, trimToLength, VALUE_WORDS,
+  artistsOwn, attributes, attribution, checkField, checkSentence, type Context, italicsIn, liftedRun, LIFT_WORDS, MARKET_FACTS, namesOf, normalise,
+  placeOf, PRIVATE_WORDS, quotationsIn, RANK_WORDS, sentenceCount, speakersIn, trimToLength, VALUE_WORDS,
 } from "@/lib/drafting/rules";
 import { NOT_ENOUGH, type Sentence, type Source } from "@/lib/drafting/types";
 
@@ -79,13 +82,13 @@ const S: Source[] = [
     n: 8,
     kind: "web",
     title: "Test Painter",
-    publisher: "Zeitz MOCAA",
+    publisher: "Zeitz MOCAA (Zeitz Museum of Contemporary Art Africa)",
     link: "https://zeitzmocaa.example/test-painter",
     passage: "Test Painter is celebrated internationally for her prints and paintings.",
   },
 ];
-const about = { living: true, artistNames: ["Painter", "Test"] };
-const living = { living: true };
+const about: Context = { living: true, artist: { surname: "Painter", givenName: "Test", displayName: "Test Painter" } };
+const living: Context = { living: true };
 const s = (text: string, sources: number[] = [1]): Sentence => ({ text, sources });
 const rulesOf = (text: string, sources: number[] = [1], ctx: Context = living) => checkSentence(s(text, sources), S, ctx).map((v) => v.rule);
 
@@ -110,13 +113,25 @@ describe("rule 2 — never state or imply a value", () => {
   });
 
   it("an auction house, a sale or a result is caught anywhere — in the desk's words or in a quotation", () => {
-    for (const t of ["It sold at Christie's.", "The top lot at Sotheby's.", "It went under the hammer at Strauss & Co.", "Bonhams offered it in 2019.", "A sale followed in 2020."]) {
+    for (const t of ["It sold at Christie's.", "The top lot at Sotheby's.", "It went under the hammer at Strauss & Co.", "Bonhams offered it in 2019.", "A sale followed in 2020.", "It was estimated to reach a record."]) {
       expect(rulesOf(t), t).toContain(2);
     }
     expect(MARKET_FACTS).toContain("sold at");
+    expect(MARKET_FACTS).toContain("estimated to reach");
     // the review's bypass: a sum inside a correctly quoted and attributed passage
     expect(rulesOf("The Art Newspaper reported that the work “sold for £1.2m at Christie’s”.", [7])).toContain(2);
     expect(rulesOf("The Art Newspaper reported that the work “sold for £1.2m at Christie’s”.", [7])).not.toContain(3);
+  });
+
+  it("hyphens hide nothing: sell-out, sold-out, high-value (the review of PR #12, should-fix 2)", () => {
+    for (const t of ["A sell-out show.", "The show was sold-out.", "A high-value work."]) expect(rulesOf(t), t).toContain(2);
+  });
+
+  it("Phillips is an auction house beside a word of the auction room, and a surname otherwise (the nit)", () => {
+    expect(rulesOf("Lisa Phillips, the director, wrote the essay.")).toEqual([]);
+    expect(rulesOf("Phillips auctioned it in 2020.")).toContain(2);
+    expect(rulesOf("It was offered at Phillips in the evening sale.")).toContain(2);
+    expect(MARKET_FACTS).not.toContain("phillips");
   });
 });
 
@@ -128,9 +143,14 @@ describe("rule 6 — no rank, no superlatives of our own", () => {
     for (const t of ["Africa's most exciting painter.", "One of South Africa's most collected artists.", "Her most ambitious work to date.", "A well-known painter.", "An eminent figure.", "Lauded and hailed.", "A landmark show.", "A trailblazing career.", "She is highly regarded.", "An exceptional and remarkable eye."]) {
       expect(rulesOf(t), t).toContain(6);
     }
-    // a quantity, and a date, are not a rank
+    // hyphenated praise (should-fix 2)
+    for (const t of ["A world-famous painter.", "A much-lauded series.", "An internationally-acclaimed painter.", "She is highly-regarded."]) expect(rulesOf(t), t).toContain(6);
+    // a quantity, a date, and what someone is known for are not a rank
     expect(rulesOf("Most of her works are on paper.")).toEqual([]);
     expect(rulesOf("Her most recent show was in Cape Town.")).toEqual([]);
+    expect(rulesOf("She is best known for her prints.")).toEqual([]);
+    expect(rulesOf("She is best-known for her prints.")).toEqual([]);
+    expect(rulesOf("Her best work is on paper.")).toContain(6);
     expect(RANK_WORDS).toContain("seminal");
     expect(RANK_WORDS).toContain("well-known");
   });
@@ -187,36 +207,86 @@ describe("the exact-match test on every quotation (rule 7)", () => {
   });
 });
 
+describe("lifted text (rule 7, as Michael set it on 18 Nov): ten words of a source in a row, outside quotation marks", () => {
+  const lifted = "Test Painter was born in Durban in 1980 and studied at the Michaelis School of Fine Art.";
+
+  it("is caught — in any capitals, with any punctuation, from any source — and named by its length and source", () => {
+    const v = checkSentence(s(lifted, [1]), S, living);
+    expect(v.map((x) => x.rule)).toEqual([7]);
+    expect(v[0].why).toBe("17 words of source [1] in a row without quotation marks — quote them, or rephrase");
+    expect(rulesOf(lifted.toLowerCase())).toContain(7);
+    expect(rulesOf("Test Painter was born in Durban in 1980, and studied at the Michaelis School of Fine Art; she paints.")).toContain(7);
+    // lifted from a source the sentence does not cite
+    expect(rulesOf(lifted, [3])).toContain(7);
+    expect(liftedRun(lifted, [], S)).toEqual({ words: "test painter was born in durban in 1980 and studied at the michaelis school of fine art", n: 1 });
+    expect(LIFT_WORDS).toBe(10);
+  });
+
+  it("is not: fewer than ten words in a row, a quotation, or a title in italics", () => {
+    expect(rulesOf("Born in Durban in 1980, she studied at the Michaelis School of Fine Art in the city.")).toEqual([]);
+    expect(rulesOf("Harbour Gallery records that she “was born in Durban in 1980 and studied at the Michaelis School of Fine Art”.")).toEqual([]);
+    expect(rulesOf("Her show *Test Painter was born in Durban in 1980 and studied at the Michaelis School of Fine Art* opened in 2020.")).toEqual([]);
+    expect(liftedRun("Born in Durban in 1980, she studied at the Michaelis School of Fine Art in the city.", [], S)).toBeNull();
+  });
+});
+
 describe("attribution (rule 3) — who may be named as the source of quoted words", () => {
-  it("the publisher: its whole name, a run of its words, a distinctive word as written, an acronym or a stated role — never a common word", () => {
-    expect(namesOf("Test Painter (the artist)")).toEqual(expect.arrayContaining(["Test Painter", "Test", "Painter", "the artist"]));
+  it("the publisher: its whole name, a run of its words, a distinctive word, an acronym or a stated role — never a common word or phrase, never a first name", () => {
+    expect(namesOf("Test Painter (the artist)")).toEqual(["Test Painter", "Painter", "the artist"]);
     expect(namesOf("Harbour Gallery")).toEqual(["Harbour Gallery", "Harbour"]);
     expect(namesOf("Everard Read")).toEqual(["Everard Read", "Everard"]);
-    expect(namesOf("SA Print Gallery")).toEqual(["SA Print Gallery", "SA Print", "Print Gallery"]);
+    expect(namesOf("SA Print Gallery")).toEqual(["SA Print Gallery", "SA Print"]);
     expect(namesOf("blank projects")).toEqual(["blank projects"]);
     expect(namesOf("Smithsonian Institution")).toEqual(["Smithsonian Institution", "Smithsonian"]);
-    const saho = namesOf("South African History Online (SAHO)");
-    expect(saho).toContain("South African History Online");
-    expect(saho).toContain("SAHO");
-    expect(saho).not.toContain("History");
-    expect(saho).not.toContain("Online");
-    const met = namesOf("The Metropolitan Museum of Art (the Met)");
-    expect(met).toEqual(expect.arrayContaining(["The Metropolitan Museum of Art", "Metropolitan Museum", "the Met"]));
-    expect(met).not.toContain("Metropolitan");
+    expect(namesOf("South African History Online (SAHO)")).toEqual(["South African History Online", "SAHO"]);
+    expect(namesOf("The Metropolitan Museum of Art (the Met)")).toEqual(["The Metropolitan Museum of Art", "the Met"]);
     expect(namesOf("Contemporary And (C&)")).toEqual(["Contemporary And", "C&"]);
+    expect(namesOf("Victoria and Albert Museum (V&A)")).toEqual(["Victoria and Albert Museum", "V&A"]);
     const iziko = namesOf("Iziko Museums of South Africa");
     expect(iziko).toEqual(expect.arrayContaining(["Iziko", "Iziko Museums"]));
     expect(iziko).not.toContain("South Africa");
     expect(iziko).not.toContain("Museums of South Africa");
+    // the review of PR #12, should-fix 1: a first name before a surname never names the gallery alone
+    expect(namesOf("Jack Shainman Gallery")).toEqual(["Jack Shainman Gallery", "Jack Shainman", "Shainman Gallery", "Shainman"]);
+    expect(namesOf("Marian Goodman Gallery")).not.toContain("Marian");
+    const fakhoury = namesOf("Galerie Cécile Fakhoury");
+    expect(fakhoury).toEqual(expect.arrayContaining(["Galerie Cécile Fakhoury", "Cécile Fakhoury", "Fakhoury"]));
+    expect(fakhoury).not.toContain("Cécile");
+    // the nit: a second name in parentheses with spaces counts whole, and by its own names
+    const zeitz = namesOf("Zeitz MOCAA (Zeitz Museum of Contemporary Art Africa)");
+    expect(zeitz).toEqual(expect.arrayContaining(["Zeitz MOCAA", "MOCAA", "Zeitz Museum of Contemporary Art Africa", "Zeitz Museum", "Zeitz"]));
 
     expect(attributes("as Iziko records", S[2])).toBe(true);
     expect(attributes("as the South African museum records", S[2])).toBe(false);
     expect(attributes("as Harbour Gallery puts it", S[0])).toBe(true);
     expect(attributes("as the gallery puts it", S[0])).toBe(false);
-    expect(attributes("as everard read notes", S[4])).toBe(true);
     expect(attributes("critics read her as", S[4])).toBe(false);
     expect(attributes("as Tate records", S[3])).toBe(true);
+    expect(attributes("as the Zeitz Museum of Contemporary Art Africa records", S[7])).toBe(true);
+    expect(attributes("as Zeitz records", S[7])).toBe(true);
+  });
+
+  it("a name is matched as written, capitals included — only its first letter may be either case", () => {
+    expect(attributes("as Everard Read notes", S[4])).toBe(true);
+    expect(attributes("as everard read notes", S[4])).toBe(false);
     expect(attributes("as tate records", S[3])).toBe(false);
+    const blank: Source = { n: 9, kind: "web", title: "T", publisher: "blank projects", link: "https://blankprojects.example/", passage: "She paints." };
+    expect(attributes("as blank projects notes", blank)).toBe(true);
+    expect(attributes("Blank projects notes", blank)).toBe(true);
+    expect(attributes("as BLANK PROJECTS notes", blank)).toBe(false);
+    const met: Source = { n: 9, kind: "web", title: "T", publisher: "The Metropolitan Museum of Art (the Met)", link: "https://metmuseum.example/", passage: "She paints." };
+    expect(attributes("as the Met records", met)).toBe(true);
+    expect(attributes("The Met records", met)).toBe(true);
+    expect(attributes("the metropolitan", met)).toBe(false);
+    // the review's phrases, which named a source and no longer do
+    const saho: Source = { n: 9, kind: "web", title: "T", publisher: "South African History Online (SAHO)", link: "https://sahistory.example/", passage: "He is the foremost artist of his time." };
+    expect(checkSentence(s("Steeped in South African history, he is “the foremost artist of his time”.", [9]), [saho], living).map((v) => v.rule)).toContain(3);
+    expect(checkSentence(s("SAHO calls him “the foremost artist of his time”.", [9]), [saho], living)).toEqual([]);
+    expect(attributes("His contemporary and friend", { kind: "web", publisher: "Contemporary And (C&)", passage: "x" })).toBe(false);
+    expect(attributes("as C& reports", { kind: "web", publisher: "Contemporary And (C&)", passage: "x" })).toBe(true);
+    expect(attributes("Victoria and her sister", { kind: "web", publisher: "Victoria and Albert Museum (V&A)", passage: "x" })).toBe(false);
+    expect(attributes("the Union Jack", { kind: "web", publisher: "Jack Shainman Gallery", passage: "x" })).toBe(false);
+    expect(attributes("as Shainman Gallery notes", { kind: "web", publisher: "Jack Shainman Gallery", passage: "x" })).toBe(true);
   });
 
   it("a person the passage shows speaking: two or more words beside a speech verb — never a place, a prize or a bare mention", () => {
@@ -227,6 +297,8 @@ describe("attribution (rule 3) — who may be named as the source of quoted word
     expect(speakersIn("The Turner Prize jury wrote that it was quiet.")).toEqual([]);
     expect(speakersIn("Als writes that it is quiet.")).toEqual([]);
     expect(speakersIn("Hilton Als, writing in the catalogue, observes that it is quiet.")).toEqual(["Hilton Als"]);
+    // the journalist's form, the verb first after the quotation
+    expect(speakersIn("“It is quiet,” says Hilton Als.")).toEqual(["Hilton Als"]);
     // a critic quoted on a museum's page, named in the sentence
     expect(rulesOf("Ann Example has written that she is “interested in the harbour, not as a view but as a place of work”.", [4], about)).toEqual([]);
     expect(rulesOf("Tate records that she is “interested in the harbour, not as a view but as a place of work”.", [4], about)).toEqual([]);
@@ -241,10 +313,11 @@ describe("attribution (rule 3) — who may be named as the source of quoted word
     // the artist's words on another's page, where the passage shows the artist speaking them
     expect(rulesOf("The artist says she paints “what I remember”.", [4], about)).toEqual([]);
     expect(rulesOf("Test Painter says she paints “what I remember”.", [4], about)).toEqual([]);
-    expect(rulesOf("The artist says she paints “what I remember”.", [4])).toContain(3);
+    expect(rulesOf("The artist says she paints “what I remember”.", [4])).not.toEqual([]);
     expect(rulesOf("She says she paints “what I remember”.", [4], about)).toContain(3);
-    // the critic's line put in the artist's mouth
-    expect(rulesOf("The artist says she is “interested in the harbour, not as a view but as a place of work”.", [4], about)).toContain(3);
+    // the critic's line put in the artist's mouth: the wrong speaker (rule 7), the page named or not
+    expect(rulesOf("The artist says she is “interested in the harbour, not as a view but as a place of work”.", [4], about)).toContain(7);
+    expect(rulesOf("In Tate, the artist says she is “interested in the harbour, not as a view but as a place of work”.", [4], about)).toContain(7);
     // naming the subject is not naming the source
     expect(rulesOf("Test Painter is “interested in the harbour, not as a view but as a place of work”.", [4], about)).toContain(3);
     // a page about the artist with no speech in it is not the artist speaking
@@ -257,6 +330,84 @@ describe("attribution (rule 3) — who may be named as the source of quoted word
     expect(artistsOwn(S[5], "her long illness and her divorce", about)).toBe(true);
     expect(artistsOwn(S[5], "her father's house appears in every work", about)).toBe(false);
     expect(artistsOwn(S[7], "celebrated internationally for her prints and paintings", about)).toBe(false);
+  });
+});
+
+describe("the review of PR #12 — blocker 1: the artist's own words, by the artist's own name, from the same sentence", () => {
+  const ADAMS: Context = { living: true, artist: { surname: "Adams", givenName: "Igshaan", displayName: "Igshaan Adams" } };
+  const KENTRIDGE: Context = { living: true, artist: { surname: "Kentridge", givenName: "William", displayName: "William Kentridge" } };
+  const HALTER: Context = { living: true, artist: { surname: "Halter", givenName: "Dan", displayName: "Dan Halter" } };
+  const web = (n: number, publisher: string, passage: string): Source => ({ n, kind: "web", title: "T", publisher, link: `https://${publisher.toLowerCase().replace(/\W+/g, "")}.example/`, passage });
+  const FRIEZE = web(1, "Frieze", "Igshaan Adams says he weaves every day. “His father never accepted his sexuality,” the critic Jane Doe writes.");
+  const FRIEZE_AFTER = web(1, "Frieze", "“I weave every day,” Igshaan Adams says. His father, a strict imam, never accepted his sexuality, friends recall.");
+  const MET = web(1, "The Metropolitan Museum of Art (the Met)", "Sydney Kentridge said his son had suffered from depression in the 1980s.");
+  const ARTFORUM = web(1, "Artforum", "Dan Cameron writes that Halter's divorce shaped the work.");
+  const check = (text: string, source: Source, ctx: Context) => checkSentence(s(text, [1]), [source], ctx).map((v) => v.rule);
+
+  it("a quotation followed by its speaker belongs to that speaker, not to whoever spoke earlier", () => {
+    expect(check("Adams told Frieze that “His father never accepted his sexuality”.", FRIEZE, ADAMS)).toContain(7);
+    const critic = check("Jane Doe writes in Frieze that “His father never accepted his sexuality”.", FRIEZE, ADAMS);
+    expect(critic).not.toContain(7);
+    expect(critic).not.toContain(3);
+    expect(critic).toContain(8);
+    expect(artistsOwn(FRIEZE, "His father never accepted his sexuality", ADAMS)).toBe(false);
+    expect(artistsOwn(FRIEZE, "he weaves every day", ADAMS)).toBe(true);
+  });
+
+  it("the writer's narration after the artist speaks is not the artist's", () => {
+    expect(artistsOwn(FRIEZE_AFTER, "I weave every day", ADAMS)).toBe(true);
+    expect(artistsOwn(FRIEZE_AFTER, "never accepted his sexuality", ADAMS)).toBe(false);
+    const narration = check("In Frieze, Adams says his father “never accepted his sexuality”.", FRIEZE_AFTER, ADAMS);
+    expect(narration).toContain(8);
+    expect(check("Igshaan Adams told Frieze that “I weave every day”.", FRIEZE_AFTER, ADAMS)).toEqual([]);
+  });
+
+  it("a relative with the surname, or a critic with the given name, is not the artist", () => {
+    expect(artistsOwn(MET, "his son had suffered from depression in the 1980s", KENTRIDGE)).toBe(false);
+    const son = check("Kentridge told the Met that “his son had suffered from depression in the 1980s”.", MET, KENTRIDGE);
+    expect(son).toContain(7);
+    expect(son).toContain(8);
+    expect(artistsOwn(ARTFORUM, "Halter's divorce shaped the work", HALTER)).toBe(false);
+    const divorce = check("Halter has said that “Halter's divorce shaped the work”.", ARTFORUM, HALTER);
+    expect(divorce).toContain(7);
+    expect(divorce).toContain(8);
+    expect(check("Dan Cameron writes in Artforum that “Halter's divorce shaped the work”.", ARTFORUM, HALTER)).toEqual([8]);
+  });
+});
+
+describe("the review of PR #12 — blocker 2: naming the page lets no one's words be given to anyone else", () => {
+  const ADAMS: Context = { living: true, artist: { surname: "Adams", givenName: "Igshaan", displayName: "Igshaan Adams" } };
+  const KENTRIDGE: Context = { living: true, artist: { surname: "Kentridge", givenName: "William", displayName: "William Kentridge" } };
+  const FRIEZE: Source = {
+    n: 1,
+    kind: "web",
+    title: "Igshaan Adams",
+    publisher: "Frieze",
+    link: "https://frieze.example/adams",
+    passage: "In the catalogue the critic Jane Doe argues that Adams's weavings are the most tender works in South African art. “I weave because my hands need to pray,” Igshaan Adams says.",
+  };
+  const TATE: Source = { n: 1, kind: "web", title: "T", publisher: "Tate", link: "https://tate.example/", passage: "The critic William Feaver has called the drawings the greatest of the age." };
+  const check = (text: string, source: Source, ctx: Context) => checkSentence(s(text, [1]), [source], ctx).map((v) => v.rule);
+
+  it("a critic's superlative is not the artist's, nor the artist's words the critic's — whichever page is named", () => {
+    expect(check("Adams told Frieze that his weavings are “the most tender works in South African art”.", FRIEZE, ADAMS)).toContain(7);
+    expect(check("In Frieze, the artist says his weavings are “the most tender works in South African art”.", FRIEZE, ADAMS)).toContain(7);
+    expect(check("Jane Doe writes in Frieze that “my hands need to pray”.", FRIEZE, ADAMS)).toContain(7);
+    expect(check("Kentridge has said the drawings are “the greatest of the age”.", TATE, KENTRIDGE)).toContain(7);
+    expect(check("Tate records that Kentridge has said the drawings are “the greatest of the age”.", TATE, KENTRIDGE)).toContain(7);
+    const r = attribution("Adams told Frieze that his weavings are", FRIEZE, ADAMS.artist ? { artist: ADAMS.artist } : {}, "the most tender works in South African art");
+    expect(r).toEqual({ ok: false, rule: 7, why: "a quotation given to the artist, where the passage shows Jane Doe speaking" });
+  });
+
+  it("the right speaker named passes; the page named with no speaker passes; the page alone, where nobody is shown, passes", () => {
+    expect(check("Jane Doe argues in Frieze that Adams's weavings are “the most tender works in South African art”.", FRIEZE, ADAMS)).toEqual([]);
+    expect(check("For Jane Doe, the weavings are “the most tender works in South African art”.", FRIEZE, ADAMS)).toEqual([]);
+    expect(check("Igshaan Adams told Frieze that “I weave because my hands need to pray”.", FRIEZE, ADAMS)).toEqual([]);
+    expect(check("In Frieze the weavings are called “the most tender works in South African art”.", FRIEZE, ADAMS)).toEqual([]);
+    expect(check("William Feaver has called the drawings “the greatest of the age”.", TATE, KENTRIDGE)).toEqual([]);
+    expect(check("In Tate's words, the drawings are “the greatest of the age”.", TATE, KENTRIDGE)).toEqual([]);
+    // the artist named where the passage shows nobody: the page carries it, and the second reading judges the speaker
+    expect(rulesOf("Test Painter told Harbour Gallery that *Blue Field* is “the artist's finest work”.", [1], about)).toEqual([]);
   });
 });
 
@@ -301,9 +452,15 @@ describe("rules 4, 5, 7, 8 and 10", () => {
     expect(rulesOf("She was recently divorced.", [1], { living: false })).not.toContain(8);
     for (const t of ["Her father is a trial lawyer.", "Her mother and brother live in Durban.", "She has a partner and two sons.", "She has spoken of her sexuality."]) {
       expect(rulesOf(t, [6], about), t).toContain(8);
-      expect(rulesOf(t, [6], { living: false, artistNames: about.artistNames }), t).not.toContain(8);
+      expect(rulesOf(t, [6], { living: false, artist: about.artist }), t).not.toContain(8);
     }
     expect(PRIVATE_WORDS).toContain("father");
+    // hyphens hide nothing, and the words the review found missing (should-fix 2)
+    for (const t of ["His ex-wife is a painter.", "His half-brother lives in Durban.", "Her mother-in-law sat for her.", "His step-father raised him.", "Her stepfather raised her.", "She has a child.", "Her spouse is a writer.", "His fiancée sat for him."]) {
+      expect(rulesOf(t), t).toContain(8);
+    }
+    // a material, not a mother
+    expect(rulesOf("She works in mother-of-pearl and brass.")).toEqual([]);
     // the artist's own words, quoted and given to the artist: allowed
     expect(rulesOf("Test Painter has spoken of “her long illness and her divorce”.", [6], about)).toEqual([]);
     expect(rulesOf("Test Painter has written that “The blue is the blue of the bay in July, which I wanted to keep.”", [2])).toEqual([]);
@@ -380,13 +537,25 @@ describe("the planted faults — every one caught; the good drafts clean", () =>
     { text: "Her mother and brother live in Durban.", sources: [6], rule: 8 },
     { text: "She has a partner and two sons.", sources: [6], rule: 8 },
     { text: "This work speaks to me.", rule: 7 },
+    // the review of PR #12
+    { text: "The artist says she is “interested in the harbour, not as a view but as a place of work”.", sources: [4], rule: 7 },
+    { text: "Steeped in South African history, she is “the most significant artist” of her generation.", sources: [5], rule: 3 },
+    { text: "A sell-out show.", rule: 2 },
+    { text: "It was estimated to reach a record.", rule: 2 },
+    { text: "It was offered at Phillips in the evening sale.", rule: 2 },
+    { text: "A world-famous and much-lauded painter.", rule: 6 },
+    { text: "His ex-wife and half-brother sat for him.", rule: 8 },
+    { text: "Her stepfather and her child appear in the work.", rule: 8 },
+    { text: "Test Painter was born in Durban in 1980 and studied at the Michaelis School of Fine Art.", rule: 7 },
   ];
+  // the artist is named in the context here, as the desk names them
+  const ctx: Context = { living: true, artist: about.artist };
   it.each(bad)("catches: $text", ({ text, sources, rule }) => {
-    expect(rulesOf(text, sources ?? [1])).toContain(rule);
+    expect(checkSentence(s(text, sources ?? [1]), S, ctx).map((v) => v.rule)).toContain(rule);
   });
 
   const good: { text: string; sources: number[] }[] = [
-    { text: "Test Painter was born in Durban in 1980 and studied at the Michaelis School of Fine Art.", sources: [1] },
+    { text: "Born in Durban in 1980, Test Painter studied at the Michaelis School of Fine Art.", sources: [1] },
     { text: "She lives and works in Cape Town.", sources: [1] },
     { text: "*Harbour at Dusk* entered the collection of the Iziko Museums of South Africa in 2022.", sources: [3] },
     { text: "Of *Blue Field*, Test Painter has written: “The blue is the blue of the bay in July, which I wanted to keep.”", sources: [2] },
@@ -395,17 +564,19 @@ describe("the planted faults — every one caught; the good drafts clean", () =>
     { text: "Ann Example has written that she is “interested in the harbour, not as a view but as a place of work”.", sources: [4] },
     { text: "Most of her works are on paper.", sources: [1] },
     { text: "Her most recent show was in Cape Town, with Everard Read.", sources: [5] },
+    { text: "She is best known for her prints, which she makes in mother-of-pearl and brass.", sources: [1] },
+    { text: "Test Painter told the museum that she paints “what I remember”, as Tate records.", sources: [4] },
     { text: NOT_ENOUGH, sources: [] },
   ];
   it.each(good)("passes: $text", ({ text, sources }) => {
-    expect(rulesOf(text, sources)).toEqual([]);
+    expect(checkSentence(s(text, sources), S, ctx)).toEqual([]);
   });
 
   it("a whole good biography comes through whole, and a whole bad one does not", () => {
-    const biography = checkField("biography", good.slice(0, 7).map((g) => s(g.text, g.sources)), S, living);
+    const biography = checkField("biography", good.slice(0, 7).map((g) => s(g.text, g.sources)), S, ctx);
     expect(biography.removed).toEqual([]);
     expect(biography.kept).toHaveLength(7);
-    const faults = checkField("biography", bad.map((b) => s(b.text, b.sources ?? [1])), S, living);
+    const faults = checkField("biography", bad.map((b) => s(b.text, b.sources ?? [1])), S, ctx);
     expect(faults.kept).toEqual([]);
     expect(faults.removed.map((r) => r.rule)).toEqual(bad.map((b) => b.rule));
   });

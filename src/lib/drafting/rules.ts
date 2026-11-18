@@ -1,7 +1,7 @@
 /**
  * M2-04 · The rule checker — plain code, no model, fully tested. It reads a sentence with its
- * sources and says which rule it breaks, if any. Made strict in M2-04b, after the cold review of
- * PR #11. What it knows:
+ * sources and says which rule it breaks, if any. Made strict in M2-04b, after the cold reviews of
+ * PR #11 and PR #12. What it knows:
  *
  * - A sum of money, an auction house, a sale or a result (rule 2) and the sensitive classes
  *   (rule 5) may appear nowhere in a sentence — not even inside a quotation.
@@ -10,17 +10,25 @@
  *   paraphrase never carries them.
  * - A living person's private life (rule 8) — family, health, relationships, sexuality, finances —
  *   may appear only inside such a quotation from the artist's own text (their supplied statement,
- *   or a passage in which the artist is the one speaking), attributed to the artist. Never a
- *   third party's remarks, quoted or not.
+ *   or a passage in which the artist is the one speaking), given to the artist. Never a third
+ *   party's remarks, quoted or not. The artist is the artist by their own whole name or by the
+ *   surname alone — a relative with the surname, or a critic with the given name, is someone else —
+ *   and the speaker of quoted words is found in the same sentence of the passage, never an earlier
+ *   one. Where this fails, it fails safe.
  * - The exact-match test (rule 7, and rule 6 as Michael wrote it): the quoted words must appear in
  *   the passage of a cited source, beginning and ending at a word boundary — curly or straight
  *   quotes, spacing, dashes and markdown emphasis aside, letter for letter otherwise, capitals
  *   included. A quotation that fails is "not a quotation".
  * - A quotation must name its source in the same sentence (rule 3: "quoted … and attributed"): the
- *   publisher, by its whole name or a distinctive word of it — never a common English word; or the
- *   person the passage itself shows speaking those words — a name of two or more words beside a
- *   speech verb ("Hilton Als has written", "according to Hilton Als"), never a place or a prize;
- *   or the artist, as "the artist" or by name, only where the words are the artist's own.
+ *   publisher, by its whole name or a distinctive word of it, as written — never a common English
+ *   word or phrase, never a first name; or the person the passage itself shows speaking those
+ *   words — a name of two or more words beside a speech verb ("Hilton Als has written", "according
+ *   to Hilton Als", "…," says Hilton Als) — never a place or a prize; or the artist, as "the artist"
+ *   or by name, only where the words are the artist's own. Where the passage shows who spoke, the
+ *   sentence may give the words to nobody else (rule 7): a critic's line is not the artist's, nor
+ *   the artist's the critic's, whichever page is named beside it.
+ * - Ten or more words of a source in a row, outside quotation marks, are the source's voice passed
+ *   off as the desk's (rule 7, as Michael set it on 18 Nov): quote them, or rephrase.
  * - Every sentence cites at least one source that exists (rule 4) — except the one sentence the
  *   list itself allows, "Not enough is known yet." (rule 10).
  * - No first person outside a quotation (rule 7: no invented voices). A work's title in italics is
@@ -33,7 +41,7 @@
  *
  * Facts written in the desk's own words are not checked here: only the second, model-based
  * reading tests a paraphrase against its passage. Plain code checks quotations word for word, the
- * word lists, the sources and the lengths.
+ * lifted runs, the word lists, the sources and the lengths.
  */
 import { NOT_ENOUGH, type Field, type Removal, type Sentence, type Source } from "./types";
 
@@ -42,11 +50,15 @@ export const LIMITS: Record<Field, { words: number; sentences: number | null }> 
   why_they_matter: { words: 60, sentences: 2 },
 };
 
+/** This many words of a source in a row, outside quotation marks, are lifted text (rule 7, 18 Nov). */
+export const LIFT_WORDS = 10;
+
 export type Violation = { rule: number; why: string; match: string };
 type Span = { text: string; start: number; end: number };
 
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-const phrases = (list: string[]) => new RegExp(`(?<![\\w-])(?:${list.map((w) => escape(w).replace(/ /g, "\\s+")).join("|")})(?![\\w-])`, "gi");
+/** A word list as one pattern: whole words only — a hyphen is not part of a word ("ex-wife", "world-famous") — and a space in a phrase may be a hyphen ("sell-out", "highly-regarded"). */
+const phrases = (list: string[]) => new RegExp(`(?<![\\p{L}\\p{N}])(?:${list.map((w) => escape(w).replace(/[ -]/g, "[\\s-]+")).join("|")})(?![\\p{L}\\p{N}])`, "giu");
 
 const NUMBER_WORD =
   "(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|hundreds|thousand|thousands|million|millions|billion|billions|few|several|dozen|dozens|tens|couple)";
@@ -69,11 +81,15 @@ export const MONEY_PATTERNS: { re: RegExp; why: string }[] = [
 
 /** Rule 2: an auction house, a sale or a result — never written, quoted or not. */
 export const MARKET_FACTS = [
-  "sotheby's", "sotheby’s", "sothebys", "christie's", "christie’s", "christies", "bonhams", "phillips", "strauss & co", "strauss and co",
+  "sotheby's", "sotheby’s", "sothebys", "christie's", "christie’s", "christies", "bonhams", "strauss & co", "strauss and co",
   "aspire art", "sold at", "sold for", "sold out", "sell out", "sells out", "selling out", "fetched", "under the hammer", "hammer price",
   "record price", "record sum", "record sale", "auction result", "auction results", "auction record", "top lot", "estimated to reach",
   "estimated to fetch", "estimated at", "sale price", "sale", "sales",
 ];
+
+/** Rule 2 again: Phillips is an auction house and a surname (Lisa Phillips) — the house, only beside a word of the auction room. */
+const PHILLIPS = /(?<![\p{L}])Phillips(?![\p{L}])/gu;
+const AUCTION_ROOM = /(?<![\p{L}])(?:auction\p{L}*|sold|sale|sales|lot|lots|hammer|estimates?|estimated|bids?|bidding|bidders?|consigned|consignment)(?![\p{L}])/iu;
 
 /** Rule 2: the words of the market — only inside an attributed quotation, never the desk's own. */
 export const VALUE_WORDS = [
@@ -102,6 +118,9 @@ export const RANK_PATTERNS: { re: RegExp; why: string }[] = [
   { re: /(?<![\w])(?:\p{L}+['’]s|its|her|his|their|our)\s+most\s+(?!of(?![\w])|recent)\p{L}+/giu, why: "a rank or superlative of our own" },
 ];
 
+/** "best known for" says what someone is known for, not that they are the best: not a rank (the review's nit, 18 Nov). */
+const KNOWN_FOR = /(?<![\p{L}])best[\s-]+known\s+for(?![\p{L}])/giu;
+
 /** Rule 5: the sensitive classes — never given to the desk, and never to appear. */
 export const SENSITIVE_WORDS = [
   "insured", "insurance", "insurer", "condition report", "in good condition", "in poor condition", "in fair condition",
@@ -112,13 +131,16 @@ export const SENSITIVE_WORDS = [
 
 /** Rule 8: a living person's private life — family, health, relationships, sexuality, finances — beyond what they published themselves. */
 export const PRIVATE_WORDS = [
-  "married", "marriage", "wife", "husband", "divorce", "divorced", "girlfriend", "boyfriend", "partner", "children", "son", "sons",
-  "his son", "her son", "daughter", "daughters", "his daughter", "her daughter", "father", "mother", "parents", "brother", "brothers",
-  "sister", "sisters", "siblings", "family", "grandfather", "grandmother", "uncle", "aunt", "pregnant", "pregnancy", "illness", "ill health",
-  "cancer", "diagnosed", "diagnosis", "depression", "addiction", "rehab", "sober", "sexuality", "sexual", "gay", "queer", "lesbian", "bisexual",
-  "transgender", "homosexual", "bankrupt", "bankruptcy", "debt", "debts", "lawsuit", "sued", "arrested", "convicted", "affair", "salary",
-  "earns", "income", "net worth",
+  "married", "marriage", "wife", "husband", "spouse", "divorce", "divorced", "girlfriend", "boyfriend", "fiancé", "fiancée", "fiance",
+  "fiancee", "partner", "child", "children", "son", "sons", "his son", "her son", "daughter", "daughters", "his daughter", "her daughter",
+  "father", "mother", "stepfather", "stepmother", "parents", "brother", "brothers", "sister", "sisters", "siblings", "family", "grandfather",
+  "grandmother", "uncle", "aunt", "pregnant", "pregnancy", "illness", "ill health", "cancer", "diagnosed", "diagnosis", "depression",
+  "addiction", "rehab", "sober", "sexuality", "sexual", "gay", "queer", "lesbian", "bisexual", "transgender", "homosexual", "bankrupt",
+  "bankruptcy", "debt", "debts", "lawsuit", "sued", "arrested", "convicted", "affair", "salary", "earns", "income", "net worth",
 ];
+
+/** A material, not a mother: skipped by the private-life check. */
+const NOT_PRIVATE = /mother-of-pearl/gi;
 
 /** Rule 7: the first person, which is never the desk's. ("us" lower-case only: the US is a place.) */
 const VOICE = /(?<![\w'’])(?:I|I'm|I’m|I've|I’ve|my|My|mine|myself|me|Me|we|We|our|Our|ours|us)(?![\w])/g;
@@ -185,92 +207,130 @@ const COMMON_WORDS = new Set([
   "editions", "edition", "books", "papers", "paper", "images", "pictures", "visual", "digital", "media", "life", "living", "home", "people",
 ]);
 
+const cleanWord = (t: string) => t.replace(/[^\p{L}\p{N}'’&-]/gu, "");
+const isGenericWord = (t: string) => NOT_A_NAME.has(t.toLowerCase()) || COMMON_WORDS.has(t.toLowerCase());
+const generic = (run: string) => run.split(/\s+/).every((t) => isGenericWord(cleanWord(t)));
+
 /**
- * The words by which a source may be named in a sentence: its publisher's whole name; any run of
- * two or more of its words that is not all generic ("Everard Read", "Print Gallery", "blank
- * projects"); a distinctive single word, capitalised as written ("Tate", "Stevenson", "Iziko" —
- * never "read", "print", "history", "Institution"); an acronym the name gives in parentheses
- * ("C&", "MoMA"); and its role when the publisher states one — "Dan Halter (the artist)" may be named
- * as "the artist".
+ * The names in one written name: the whole of it; any run of two or more of its words that is not
+ * all generic ("Everard Read", "Iziko Museums" — never "South African History", "Victoria and",
+ * "Print Gallery"); and a distinctive single word, capitalised ("Tate", "Stevenson", "Shainman" —
+ * never "read", "history", "Institution"), unless it stands before another such word and so is a
+ * first name ("Jack" Shainman, "Marian" Goodman, "Cécile" Fakhoury).
+ */
+function namesIn(whole: string): string[] {
+  const tokens = whole.split(" ").filter(Boolean);
+  const out: string[] = [];
+  if (whole.length >= 3) out.push(whole);
+  for (let i = 0; i < tokens.length; i++) {
+    for (let j = i + 2; j <= tokens.length; j++) {
+      if (i === 0 && j === tokens.length) continue;
+      const run = tokens.slice(i, j).join(" ");
+      if (!generic(run)) out.push(run);
+    }
+  }
+  const distinctive = (t: string | undefined) => !!t && t.length >= 3 && /^\p{Lu}/u.test(t) && !isGenericWord(t);
+  for (let i = 0; i < tokens.length; i++) {
+    const word = cleanWord(tokens[i]);
+    if (!distinctive(word)) continue;
+    if (distinctive(cleanWord(tokens[i + 1] ?? ""))) continue; // a first name before a surname
+    out.push(word);
+  }
+  return out;
+}
+
+/**
+ * The words by which a source may be named in a sentence: its publisher's names (above); a second
+ * name the allowlist gives in parentheses, whole ("Zeitz Museum of Contemporary Art Africa") and by
+ * its own names; an acronym in parentheses ("C&", "MoMA", "SAHO"); and its role when the publisher
+ * states one — "Dan Halter (the artist)" may be named as "the artist", "(the Met)" as the Met.
  */
 export function namesOf(publisher: string): string[] {
   const parentheticals = [...publisher.matchAll(/\(([^)]+)\)/g)].map((m) => m[1].trim());
   const roles = parentheticals.filter((r) => /^the\s+\p{L}+$/iu.test(r));
-  const acronyms = parentheticals.filter((r) => /^[\p{Lu}&][\p{L}\p{N}&.-]{1,}$/u.test(r) && !/^the\s/i.test(r));
+  const acronyms = parentheticals.filter((r) => /^[\p{Lu}&][\p{L}\p{N}&.-]{1,}$/u.test(r));
+  const alsoNamed = parentheticals.filter((r) => !roles.includes(r) && !acronyms.includes(r) && r.includes(" "));
   const whole = publisher.replace(/\s*\(.*?\)\s*/g, " ").replace(/\s+/g, " ").trim();
-  const tokens = whole.split(" ").filter(Boolean);
   const out = new Set<string>();
-  if (whole.length >= 3) out.add(whole);
-  for (let i = 0; i < tokens.length; i++) {
-    for (let j = i + 2; j <= tokens.length; j++) {
-      const run = tokens.slice(i, j);
-      if (run.every((t) => NOT_A_NAME.has(t.toLowerCase()))) continue;
-      out.add(run.join(" "));
-    }
-  }
-  for (const t of tokens) {
-    const word = t.replace(/[^\p{L}\p{N}'’&-]/gu, "");
-    if (word.length < 3 || NOT_A_NAME.has(word.toLowerCase()) || COMMON_WORDS.has(word.toLowerCase())) continue;
-    if (!/^\p{Lu}/u.test(word)) continue; // a lower-case word never names a source alone ("blank", "projects")
-    out.add(word);
-  }
+  for (const name of [whole, ...alsoNamed]) for (const n of namesIn(name)) out.add(n);
   for (const r of roles) out.add(r);
   for (const a of acronyms) out.add(a);
   return [...out].filter((n) => n.length >= 2);
 }
 
-/** A single Title-case word is matched as written ("Tate", not "tate"); a run of words, an acronym or a role in any case. */
+/** A name is matched as written, capitals included — only a name of several words may start with either case, for a sentence's start ("The Met", "Blank projects"); a single word is as written ("Tate", never "tate"). */
 const matches = (text: string, name: string) => {
-  const asWritten = !name.includes(" ") && /^\p{Lu}\p{Ll}/u.test(name);
-  return new RegExp(`(?<![\\p{L}])${escape(name)}(?![\\p{L}])`, asWritten ? "u" : "iu").test(text);
+  const first = name[0];
+  const head = name.includes(" ") && /\p{L}/u.test(first) ? `[${first.toUpperCase()}${first.toLowerCase()}]` : escape(first);
+  return new RegExp(`(?<![\\p{L}])${head}${escape(name.slice(1))}(?![\\p{L}])`, "u").test(text);
 };
 const names = (text: string, list: string[]) => list.some((name) => matches(text, name));
 
 const SPEECH_VERBS =
-  "(?:says|said|writes|wrote|written|told|tells|notes|noted|observes|observed|argues|argued|describes|described|calls|called|puts it|put it|explains|explained|remarks|remarked|adds|added|recalls|recalled|comments|commented|states|stated|asks|asked|suggests|suggested|insists|insisted|believes|believed|considers|considered|reflects|reflected|continues|continued|declares|declared|maintains|maintained|points out|pointed out|speaks of|spoke of|talks about|talked about|concludes|concluded|admits|admitted|acknowledges|acknowledged|emphasises|emphasizes|emphasised|emphasized|stresses|stressed|contends|contended|reports|reported|recounts|recounted)";
+  "(?:says|said|writes|wrote|written|told|tells|notes|noted|observes|observed|argues|argued|describes|described|calls|called|puts it|put it|explains|explained|remarks|remarked|adds|added|recalls|recalled|comments|commented|states|stated|asks|asked|suggests|suggested|insists|insisted|believes|believed|considers|considered|reflects|reflected|continues|continued|declares|declared|maintains|maintained|points out|pointed out|speaks of|spoke of|spoken of|spoken|talks about|talked about|concludes|concluded|admits|admitted|acknowledges|acknowledged|emphasises|emphasizes|emphasised|emphasized|stresses|stressed|contends|contended|reports|reported|recounts|recounted)";
 const SPEECH = `(?:(?:has|had|have|once|also|later|famously|recently|himself|herself|then)\\s+)*${SPEECH_VERBS}`;
 const CONNECTOR = "(?:de|van|von|da|du|le|la|den|der|al|el|wa|of)";
-/** Two or more capitalised words, connectors allowed between them: "Hilton Als", "Lynette Yiadom-Boakye", "Jan van der Merwe". */
+/** Two or more capitalised words, a connector allowed between them: "Hilton Als", "Lynette Yiadom-Boakye", "Jan van Wyk". */
 const NAME_RUN = `\\p{Lu}[\\p{L}'’.-]*(?:\\s+(?:\\p{Lu}[\\p{L}'’.-]*|${CONNECTOR}\\s+\\p{Lu}[\\p{L}'’.-]*))+`;
 
 type Marker = { name: string; start: number; end: number };
 
 const tidy = (run: string) => run.replace(/[.,;:]+$/g, "").trim();
-const generic = (run: string) => run.split(/\s+/).every((t) => NOT_A_NAME.has(t.toLowerCase()) || COMMON_WORDS.has(t.toLowerCase()));
 
-/** Where a passage shows someone speaking: "Hilton Als has written", "according to Hilton Als", "in Hilton Als's words". */
-function speechMarkers(passage: string): Marker[] {
+/**
+ * Where a text shows someone speaking: "Hilton Als has written", "according to Hilton Als", "in
+ * Hilton Als's words", and, straight after a quotation, "…," says Hilton Als. `who` is the pattern
+ * for a speaker's name: a run of two or more capitalised words, or, for the sentence under check,
+ * the artist's own names and "the artist" as well.
+ */
+function markersIn(text: string, who: string): Marker[] {
   const out: Marker[] = [];
   const patterns = [
-    new RegExp(`(${NAME_RUN})(?:,[^,.;:]{0,80},)?\\s+(?:who\\s+)?${SPEECH}(?![\\p{L}])`, "gu"),
-    new RegExp(`(?:according to|in the words of)\\s+(${NAME_RUN})(?![\\p{L}])`, "giu"),
-    new RegExp(`(${NAME_RUN})['’]s\\s+(?:words|account|phrase|description|view|essay|text|review)(?![\\p{L}])`, "gu"),
+    new RegExp(`(${who})(?:,[^,.;:]{0,80},)?\\s+(?:who\\s+)?${SPEECH}(?![\\p{L}])`, "gu"),
+    new RegExp(`(?:according to|in the words of)\\s+(${who})(?![\\p{L}])`, "giu"),
+    new RegExp(`(${who})['’]s\\s+(?:own\\s+)?(?:words|account|phrase|description|view|essay|text|review|statement)(?![\\p{L}])`, "gu"),
+    new RegExp(`(?<=["'”’,])\\s*${SPEECH_VERBS}\\s+(${who})(?![\\p{L}])`, "gu"),
   ];
   for (const re of patterns) {
-    for (const m of passage.matchAll(re)) {
+    for (const m of text.matchAll(re)) {
       const name = tidy(m[1]);
-      if (generic(name)) continue;
+      if (generic(name) && !/^[Tt]he artist$/.test(name)) continue;
       out.push({ name, start: m.index, end: m.index + m[0].length });
     }
   }
   return out.sort((a, b) => a.start - b.start);
 }
 
+const speechMarkers = (passage: string) => markersIn(passage, NAME_RUN);
+
 /** The people and bodies a passage shows speaking, in order — never a place, a prize or a title merely mentioned. */
 export function speakersIn(passage: string): string[] {
   return [...new Set(speechMarkers(normalise(passage)).map((m) => m.name))];
 }
 
-/** The last two words of a run, where a sentence-initial word was swept into it ("In Frieze Hilton Als" → "Hilton Als"). */
-const shortForm = (name: string) => {
-  const words = name.split(/\s+/);
-  return words.length > 2 ? [name, words.slice(-2).join(" ")] : [name];
-};
+/**
+ * Does a sentence end in this stretch of the passage, outside its quotations? The stretch runs from
+ * a marker to the quoted words (`before`: it may end inside the quotation that holds them) or from
+ * the quoted words to a marker (`after`: it may begin inside it). A full stop inside a quotation
+ * does not end the sentence around it.
+ */
+function sentenceEndsIn(gap: string, side: "before" | "after"): boolean {
+  let outside = gap.replace(/"[^"]*"/g, " ");
+  if (side === "before") {
+    const open = outside.lastIndexOf('"');
+    if (open >= 0) outside = outside.slice(0, open);
+  } else {
+    const close = outside.indexOf('"');
+    if (close >= 0) outside = outside.slice(close + 1);
+  }
+  return /[.!?]/.test(outside);
+}
 
 /**
- * The speaker of these quoted words in the passage: the nearest marker before them, or, with none
- * before, the first after them in the same sentence (“I work from life,” she told Tate). With no
- * quotation given, every speaker in the passage.
+ * The speaker of these quoted words in the passage: the nearest marker before them in the same
+ * sentence, or, with none, the first after them in the same sentence (“I work from life,” she told
+ * Tate; "…," says Hilton Als). Never a marker in an earlier sentence (the review's blocker 1). With
+ * no quotation given, every speaker in the passage.
  */
 function speakersOf(passage: string, needle: string | null): string[] {
   const p = normalise(passage);
@@ -279,49 +339,104 @@ function speakersOf(passage: string, needle: string | null): string[] {
   if (needle === null) return markers.map((m) => m.name);
   const place = placeOf(p, needle);
   if (!place) return [];
-  const before = markers.filter((m) => m.end <= place.start);
+  const before = markers.filter((m) => m.end <= place.start && !sentenceEndsIn(p.slice(m.end, place.start), "before"));
   if (before.length) return [before[before.length - 1].name];
-  const after = markers.find((m) => m.start >= place.end && !/[.!?]/.test(p.slice(place.end, m.start)));
+  const after = markers.find((m) => m.start >= place.end && !sentenceEndsIn(p.slice(place.end, m.start), "after"));
   return after ? [after.name] : [];
 }
 
-export type Attribution = { artistNames?: string[] };
+/** The artist the draft is about, by name: the surname, the given name, and the register's display name. */
+export type ArtistName = { surname: string; givenName: string | null; displayName?: string | null };
+export type Attribution = { artist?: ArtistName };
 
-const isArtist = (name: string, artist: string[]) => artist.some((a) => new RegExp(`(?<![\\p{L}])${escape(a)}(?![\\p{L}])`, "iu").test(name));
-const namesArtist = (text: string, artist: string[]) => /(?<![\p{L}])the artist(?![\p{L}])/iu.test(text) || (artist.length > 0 && names(text, artist));
+const THE_ARTIST = "the artist";
+
+/** The artist's own names, whole ("Igshaan Adams", "William Kentridge"), and the surname alone. */
+function ownNames(artist?: ArtistName): { full: string[]; surname: string | null } {
+  if (!artist) return { full: [], surname: null };
+  const full = [artist.displayName ?? null, artist.givenName ? `${artist.givenName} ${artist.surname}` : null].filter((n): n is string => !!n && n.length >= 3).map(normalise);
+  const surname = normalise(artist.surname);
+  return { full: [...new Set(full)], surname: surname.length >= 3 ? surname : null };
+}
+
+/**
+ * Is this speaker the artist? Only by the artist's own whole name — a word swept in before it aside
+ * ("In Frieze Igshaan Adams") — or by the surname alone. "Sydney Kentridge" is not William; "Dan
+ * Cameron" is not Dan Halter.
+ */
+const isArtist = (name: string, artist?: ArtistName) => {
+  const { full, surname } = ownNames(artist);
+  return full.some((f) => name === f || name.endsWith(" " + f)) || (surname !== null && name === surname);
+};
+
 const statedArtist = (source: Pick<Source, "kind" | "publisher">) => source.kind === "supplied" && /\(the artist\)/i.test(source.publisher);
+
+/** Two names for one person: the same, or one the other with a word swept in before it ("In Frieze Hilton Als", "Hilton Als"). */
+const sameName = (a: string, b: string) => a === b || a.endsWith(" " + b) || b.endsWith(" " + a);
+/** A run's last two words as well, where a sentence-initial word was swept into it. */
+const shortForms = (name: string) => {
+  const words = name.split(/\s+/);
+  return words.length > 2 ? [name, words.slice(-2).join(" ")] : [name];
+};
+
+/**
+ * Who the sentence itself says spoke the words: the artist — "the artist", or the artist's name,
+ * beside a speech verb ("Adams told Frieze", "in Halter's words", "the artist says") — or a named
+ * person ("Jane Doe writes"). A bare mention of a name is not a claim.
+ */
+function claimedSpeakers(textOutsideQuotes: string, ctx: Attribution): string[] {
+  const { full, surname } = ownNames(ctx.artist);
+  const artistAlt = ["[Tt]he artist", ...full.map(escape), ...(surname ? [escape(surname)] : [])].join("|");
+  const who = `${NAME_RUN}|${artistAlt}`;
+  const out: string[] = [];
+  for (const m of markersIn(normalise(textOutsideQuotes), who)) {
+    const name = /^[Tt]he artist$/.test(m.name) || isArtist(m.name, ctx.artist) ? THE_ARTIST : m.name;
+    if (!out.includes(name)) out.push(name);
+  }
+  return out;
+}
 
 /**
  * Are these quoted words the artist's own? A supplied text whose author line says "(the artist)";
- * or a passage in which the artist is the one shown speaking them.
+ * or a passage in which the artist — by their own name — is the one shown speaking them.
  */
 export function artistsOwn(source: Pick<Source, "kind" | "publisher" | "passage">, needle: string | null, ctx: Attribution = {}): boolean {
   if (statedArtist(source)) return true;
-  const artist = (ctx.artistNames ?? []).filter((n) => n.length >= 3);
-  if (artist.length === 0) return false;
-  return speakersOf(source.passage, needle).some((name) => isArtist(name, artist));
+  return speakersOf(source.passage, needle).some((name) => isArtist(name, ctx.artist));
 }
+
+export type AttributionResult = { ok: true } | { ok: false; rule: 3 | 7; why: string };
 
 /**
- * Does the text (outside its quotations) name the source of these quoted words? Yes when it names
- * the publisher; or the person the passage itself shows speaking them (never the artist the draft
- * is about — naming its subject is not attribution); or the artist, as "the artist" or by name,
- * where the words are the artist's own.
+ * Does the sentence (outside its quotations) attribute these quoted words rightly? Where the
+ * passage shows who spoke them — the artist, by their own name, or another person — the sentence
+ * may give them to nobody else (rule 7); it may name that speaker, or name the page and no speaker.
+ * Where the passage shows nobody, the page must be named (rule 3), and a speaker the sentence
+ * names is left to the second reading. Naming the artist, or the artist's text, as mere subject is
+ * not attribution.
  */
-export function attributes(textOutsideQuotes: string, source: Pick<Source, "kind" | "publisher" | "passage">, ctx: Attribution = {}, needle: string | null = null): boolean {
-  if (names(textOutsideQuotes, namesOf(source.publisher))) return true;
-  const artist = (ctx.artistNames ?? []).filter((n) => n.length >= 3);
-  const speakers = speakersOf(source.passage, needle);
-  const others = speakers.filter((name) => !isArtist(name, artist)).flatMap(shortForm);
-  if (names(textOutsideQuotes, others)) return true;
-  if (artistsOwn(source, needle, ctx) && namesArtist(textOutsideQuotes, artist)) return true;
-  return false;
+export function attribution(textOutsideQuotes: string, source: Pick<Source, "kind" | "publisher" | "passage">, ctx: Attribution = {}, needle: string | null = null): AttributionResult {
+  const pageNames = namesOf(source.publisher);
+  const page = names(textOutsideQuotes, pageNames);
+  const shown = statedArtist(source) ? [THE_ARTIST] : speakersOf(source.passage, needle).map((n) => (isArtist(n, ctx.artist) ? THE_ARTIST : n));
+  const claimed = claimedSpeakers(textOutsideQuotes, ctx).filter((c) => c === THE_ARTIST || !pageNames.some((n) => sameName(n, c)));
+  const unnamed = { ok: false as const, rule: 3 as const, why: `a quotation whose source (${source.publisher}) is not named in the sentence` };
+  if (shown.length === 0) return page ? { ok: true } : unnamed;
+  const wrong = claimed.find((c) => !shown.some((s) => sameName(s, c)));
+  if (wrong) return { ok: false, rule: 7, why: `a quotation given to ${wrong}, where the passage shows ${shown.join(" or ")} speaking` };
+  if (claimed.length > 0 || page) return { ok: true };
+  // the shown speaker named without a speech verb ("for Hilton Als, …") — never the artist, whose bare name is the subject
+  if (shown.some((s) => s !== THE_ARTIST && names(textOutsideQuotes, shortForms(s)))) return { ok: true };
+  return unnamed;
 }
 
-/** The sentence gives the artist's own words to the artist: "the artist", the artist's name, or the author line of their supplied text. */
-function attributedToArtist(textOutsideQuotes: string, source: Pick<Source, "kind" | "publisher">, ctx: Attribution): boolean {
-  const artist = (ctx.artistNames ?? []).filter((n) => n.length >= 3);
-  if (namesArtist(textOutsideQuotes, artist)) return true;
+/** Does the sentence name the source of these quoted words, rightly? (The yes-or-no of `attribution`.) */
+export const attributes = (textOutsideQuotes: string, source: Pick<Source, "kind" | "publisher" | "passage">, ctx: Attribution = {}, needle: string | null = null): boolean =>
+  attribution(textOutsideQuotes, source, ctx, needle).ok;
+
+/** The sentence gives the words to the artist: "the artist" or the artist's name beside a speech verb — or, for the artist's supplied text, its author line. */
+function givenToArtist(textOutsideQuotes: string, source: Pick<Source, "kind" | "publisher">, ctx: Attribution): boolean {
+  if (claimedSpeakers(textOutsideQuotes, ctx).includes(THE_ARTIST)) return true;
   return statedArtist(source) && names(textOutsideQuotes, namesOf(source.publisher));
 }
 
@@ -332,8 +447,50 @@ function hits(re: RegExp, text: string): string[] {
   return [...text.matchAll(re)].map((m) => m[0]);
 }
 
-/** `neverName`: words that must never appear — the collection's owner (rule 5). `artistNames`: the subject's, for attribution. */
-export type Context = { living: boolean; neverName?: string[]; artistNames?: string[] };
+/** The words of a text, lower-cased, punctuation aside — for the lifted-run test, where a changed capital or comma hides nothing. */
+const wordsOf = (text: string) =>
+  normalise(text)
+    .toLowerCase()
+    .split(/[^\p{L}\p{N}'-]+/u)
+    .filter((w) => /[\p{L}\p{N}]/u.test(w));
+
+/** The stretches of a sentence outside the given spans, each as words — a run never crosses a quotation or a title. */
+function stretchesOutside(text: string, spans: Span[]): string[][] {
+  const out: string[][] = [];
+  let at = 0;
+  for (const s of [...spans].sort((a, b) => a.start - b.start)) {
+    if (s.start > at) out.push(wordsOf(text.slice(at, s.start)));
+    at = Math.max(at, s.end);
+  }
+  out.push(wordsOf(text.slice(at)));
+  return out;
+}
+
+/**
+ * The longest run of LIFT_WORDS or more words that a stretch of the sentence shares, in order, with
+ * any source's passage — lifted text, not a paraphrase (rule 7, 18 Nov) — and whose it is.
+ */
+export function liftedRun(text: string, spans: Span[], sources: Source[]): { words: string; n: number } | null {
+  let best: { words: string; n: number; length: number } | null = null;
+  const passages = sources.map((src) => ({ n: src.n, words: wordsOf(src.passage) }));
+  for (const words of stretchesOutside(text, spans)) {
+    if (words.length < LIFT_WORDS) continue;
+    for (const { n, words: pw } of passages) {
+      for (let i = 0; i + LIFT_WORDS <= words.length; i++) {
+        for (let p = 0; p + LIFT_WORDS <= pw.length; p++) {
+          if (words[i] !== pw[p]) continue;
+          let k = 1;
+          while (i + k < words.length && p + k < pw.length && words[i + k] === pw[p + k]) k++;
+          if (k >= LIFT_WORDS && (!best || k > best.length)) best = { words: words.slice(i, i + k).join(" "), n, length: k };
+        }
+      }
+    }
+  }
+  return best ? { words: best.words, n: best.n } : null;
+}
+
+/** `neverName`: words that must never appear — the collection's owner (rule 5). `artist`: the subject's names, for attribution. */
+export type Context = { living: boolean; neverName?: string[]; artist?: ArtistName };
 
 /** The violations of one sentence against the list — an empty list means it may stay. */
 export function checkSentence(s: Sentence, sources: Source[], ctx: Context): Violation[] {
@@ -344,7 +501,7 @@ export function checkSentence(s: Sentence, sources: Source[], ctx: Context): Vio
   const cited = s.sources.map((n) => sources.find((x) => x.n === n)).filter((x): x is Source => !!x);
   if (cited.length === 0) v.push({ rule: 4, why: "no source a person can check", match: "" });
 
-  // The quotations: verbatim in a cited passage, whole words, and attributed in the sentence — or not a quotation.
+  // The quotations: verbatim in a cited passage, whole words, and attributed in the sentence to the right speaker — or not a quotation.
   const quotes = quotationsIn(text);
   const outsideAll = blank(text, quotes);
   const attributed: Span[] = [];
@@ -356,30 +513,40 @@ export function checkSentence(s: Sentence, sources: Source[], ctx: Context): Vio
       v.push({ rule: 7, why: "a quotation that is not verbatim in any cited source", match: q.text });
       continue;
     }
-    if (!attributes(outsideAll, owner, ctx, needle)) {
-      v.push({ rule: 3, why: `a quotation whose source (${owner.publisher}) is not named in the sentence`, match: q.text });
+    const given = attribution(outsideAll, owner, ctx, needle);
+    if (!given.ok) {
+      v.push({ rule: given.rule, why: given.why, match: q.text });
       continue;
     }
     attributed.push(q);
-    if (artistsOwn(owner, needle, ctx) && attributedToArtist(outsideAll, owner, ctx)) own.push(q);
+    if (artistsOwn(owner, needle, ctx) && givenToArtist(outsideAll, owner, ctx)) own.push(q);
   }
+
+  // A source's words in a row, outside quotation marks: lifted, not paraphrased.
+  const titles = italicsIn(text);
+  const lifted = liftedRun(text, [...quotes, ...titles], sources);
+  if (lifted) v.push({ rule: 7, why: `${lifted.words.split(" ").length} words of source [${lifted.n}] in a row without quotation marks — quote them, or rephrase`, match: lifted.words });
 
   // Money, the market's facts and the sensitive classes: nowhere, quoted or not.
   for (const p of MONEY_PATTERNS) for (const m of hits(p.re, text)) v.push({ rule: 2, why: p.why, match: m });
   for (const m of hits(MARKET, text)) v.push({ rule: 2, why: "an auction house, a sale or a result", match: m });
+  if (AUCTION_ROOM.test(text)) for (const m of hits(PHILLIPS, text)) v.push({ rule: 2, why: "an auction house", match: m });
   for (const m of hits(SENSITIVE, text)) v.push({ rule: 5, why: "a sensitive class: location, ownership, insurance or condition", match: m });
 
   // Outside an attributed verbatim quotation — or a title in italics, which is the work's words — the words of the
   // market, of rank and of the first person are the desk's own.
-  const titles = italicsIn(text);
   const desk = blank(text, [...attributed, ...titles]);
   for (const m of hits(VALUE, desk)) v.push({ rule: 2, why: "a word of the market", match: m });
-  for (const m of hits(RANK, desk)) v.push({ rule: 6, why: "a rank or superlative of our own", match: m });
-  for (const p of RANK_PATTERNS) for (const m of hits(p.re, desk)) v.push({ rule: 6, why: p.why, match: m });
+  const ranked = desk.replace(KNOWN_FOR, (m) => " ".repeat(m.length));
+  for (const m of hits(RANK, ranked)) v.push({ rule: 6, why: "a rank or superlative of our own", match: m });
+  for (const p of RANK_PATTERNS) for (const m of hits(p.re, ranked)) v.push({ rule: 6, why: p.why, match: m });
   for (const m of hits(VOICE, desk)) v.push({ rule: 7, why: "the first person outside a quotation", match: m });
 
   // A living person's private life: only in the artist's own words, given to the artist.
-  if (ctx.living) for (const m of hits(PRIVATE, blank(text, [...own, ...titles]))) v.push({ rule: 8, why: "a living person's private life, not in their own words", match: m });
+  if (ctx.living) {
+    const personal = blank(text, [...own, ...titles]).replace(NOT_PRIVATE, (m) => " ".repeat(m.length));
+    for (const m of hits(PRIVATE, personal)) v.push({ rule: 8, why: "a living person's private life, not in their own words", match: m });
+  }
 
   for (const name of ctx.neverName ?? []) {
     if (name.length >= 3 && new RegExp(`(?<![\\p{L}])${escape(name)}(?![\\p{L}])`, "iu").test(text)) v.push({ rule: 5, why: "names the collection or its owner", match: name });

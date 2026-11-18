@@ -5,7 +5,8 @@ check. Michael edits this file. One site per line, `- domain — who it is`; sub
 is not a domain is ignored; at most 64 sites. The desk checks that each domain resolves when it runs and
 reports any that do not. Auction houses and marketplaces are not sources (rule 2), and neither is a shop or store
 page on a site that is (`shop.`, `store.`): the desk refuses those addresses. A name in parentheses is a second name
-the desk accepts in a sentence ("the Met", "MoMA", "C&", "SAHO")._
+the desk accepts in a sentence ("the Met", "MoMA", "C&", "SAHO"); a longer one counts whole and by its own distinctive
+words ("Zeitz Museum of Contemporary Art Africa", "Zeitz Museum"). Names are matched as written, capitals included._
 
 ## The artists' galleries (from the register's provenance, and their peers)
 - goodman-gallery.com — Goodman Gallery
