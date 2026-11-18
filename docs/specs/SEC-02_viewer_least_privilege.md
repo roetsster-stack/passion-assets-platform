@@ -177,8 +177,8 @@ purpose, can read them. Say if `provenance_events.airtable_raw` and `reviews` sh
 the same companion-table move, a small follow-up.
 
 **Blocker 1 — the valuation's date.** `airtable_modified_at` is the date the current value was last set, and a viewer
-could read it. It is now the sixteenth column of `item_private` — in the table, the copy and the drops of the
-migration, in the ingest's `PRIVATE_COLUMNS` instead of `ITEM_COLUMNS`, and in the test's `PRIVATE` list. Nothing
+could read it. It is now the fifteenth of `item_private`'s moved columns — in the table, the copy and the drops of
+the migration, in the ingest's `PRIVATE_COLUMNS` instead of `ITEM_COLUMNS`, and in the test's `PRIVATE` list. Nothing
 read it but the ingest's own writes.
 
 **Blocker 2 — the order.** The eight steps above, in place of the three. The one thing that was wrong: a push before
