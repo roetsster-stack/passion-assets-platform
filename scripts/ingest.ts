@@ -87,7 +87,7 @@ async function report(db: Client, collectionName: string) {
   console.log(`  renditions   ${await q("select count(*) n from images where collection_id = $1 and kind = 'rendition'")}`);
   console.log(`  tile sets    ${await q("select count(*) n from images where collection_id = $1 and kind = 'tile_set'")}`);
   console.log(`  documents    ${await q("select count(*) n from documents where collection_id = $1")}`);
-  console.log(`  flagged      ${await q("select count(*) n from items where collection_id = $1 and admin_notes is not null")}`);
+  console.log(`  flagged      ${await q("select count(*) n from item_private where collection_id = $1 and admin_notes is not null")}`);
   console.log(`  withdrawn    ${await q("select count(*) n from items where collection_id = $1 and source_removed_at is not null")}`);
   const runs = await db.query<{ started_at: Date; status: string; counts: unknown }>(
     "select started_at, status, counts from ingest_runs where collection_id = $1 order by started_at desc limit 5",

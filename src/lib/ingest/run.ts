@@ -4,7 +4,8 @@
  *
  * Three phases:
  *   A. read and map (no writes)
- *   B. one transaction: artists, items, ownership, provenance
+ *   B. one transaction: artists, items — both halves of each work, the visible and the owner-only
+ *      (SEC-02) —, ownership, provenance
  *   C. attachments, one at a time, each committed as it lands — so an interrupted run resumes
  *      where it stopped and never leaves a half-written picture.
  *   D. the ladder (M1-02a): every Airtable photograph has its renditions cut, then each work's
@@ -67,6 +68,7 @@ export type IngestDeps = {
   log?: (msg: string) => void;
 };
 
+/** The visible half of a work — the columns of `items`, which any member of the collection may read (SEC-02). */
 const ITEM_COLUMNS = [
   "artist_id",
   "title",
@@ -78,22 +80,10 @@ const ITEM_COLUMNS = [
   "dimensions_unframed",
   "edition",
   "acquired_on",
-  "purchase_price",
-  "purchase_currency",
-  "purchase_price_zar",
   "acquired_from",
   "credit_gallery",
-  "current_value",
-  "current_value_currency",
-  "valuation_date",
   "status",
   "sold_year",
-  "location",
-  "location_tags",
-  "condition_note",
-  "admin_notes",
-  "comments_raw",
-  "notes_raw",
   "links",
   "has_high_res",
   "has_low_res",
@@ -101,9 +91,29 @@ const ITEM_COLUMNS = [
   "has_coa",
   "high_res_note",
   "airtable_modified_at",
-  "airtable_raw",
   "content_hash",
   "source_removed_at",
+] as const;
+
+/**
+ * The owner-only half — the columns of `item_private` (SEC-02): the money, the valuation, place and
+ * state, the private notes, and the record as imported. One row per work, written in the same
+ * transaction as the visible half, readable by the owner alone.
+ */
+const PRIVATE_COLUMNS = [
+  "purchase_price",
+  "purchase_currency",
+  "purchase_price_zar",
+  "current_value",
+  "current_value_currency",
+  "valuation_date",
+  "location",
+  "location_tags",
+  "condition_note",
+  "admin_notes",
+  "comments_raw",
+  "notes_raw",
+  "airtable_raw",
 ] as const;
 
 function itemValues(row: ItemRow, artistId: string | null): unknown[] {
@@ -118,22 +128,10 @@ function itemValues(row: ItemRow, artistId: string | null): unknown[] {
     row.dimensions_unframed,
     row.edition,
     row.acquired_on,
-    row.purchase_price,
-    row.purchase_currency,
-    row.purchase_price_zar,
     row.acquired_from,
     row.credit_gallery,
-    row.current_value,
-    row.current_value_currency,
-    row.valuation_date,
     row.status,
     row.sold_year,
-    row.location,
-    row.location_tags,
-    row.condition_note,
-    row.admin_notes,
-    row.comments_raw,
-    row.notes_raw,
     row.links,
     row.has_high_res,
     row.has_low_res,
@@ -141,9 +139,26 @@ function itemValues(row: ItemRow, artistId: string | null): unknown[] {
     row.has_coa,
     row.high_res_note,
     row.airtable_modified_at,
-    JSON.stringify(row.raw),
     row.content_hash,
     null, // source_removed_at: present in the source, so not removed
+  ];
+}
+
+function privateValues(row: ItemRow): unknown[] {
+  return [
+    row.purchase_price,
+    row.purchase_currency,
+    row.purchase_price_zar,
+    row.current_value,
+    row.current_value_currency,
+    row.valuation_date,
+    row.location,
+    row.location_tags,
+    row.condition_note,
+    row.admin_notes,
+    row.comments_raw,
+    row.notes_raw,
+    JSON.stringify(row.raw),
   ];
 }
 
@@ -389,20 +404,26 @@ async function syncItems(
   const setClause = ITEM_COLUMNS.map((c, i) => `${c} = $${i + 2}`).join(", ");
   const insertCols = ["collection_id", "airtable_record_id", ...ITEM_COLUMNS].join(", ");
   const insertParams = ["collection_id", "airtable_record_id", ...ITEM_COLUMNS].map((_, i) => `$${i + 1}`).join(", ");
+  // The owner-only half: one row per work, found by the work's id and rewritten whenever the work is.
+  const privateCols = ["item_id", "collection_id", ...PRIVATE_COLUMNS];
+  const privateUpsert = `insert into item_private (${privateCols.join(", ")}) values (${privateCols.map((_, i) => `$${i + 1}`).join(", ")})
+     on conflict (item_id) do update set ${PRIVATE_COLUMNS.map((c) => `${c} = excluded.${c}`).join(", ")}`;
 
   for (const { row } of items) {
     seen.add(row.airtable_record_id);
     const artistId = row.artist_key ? (artistIds.get(row.artist_key) ?? null) : null;
     const cur = byRec.get(row.airtable_record_id);
+    // The content hash covers the whole mapped record, both halves: unchanged means neither is touched.
     if (cur && cur.content_hash === row.content_hash && cur.artist_id === artistId && cur.source_removed_at === null) {
       ids.set(row.airtable_record_id, cur.id);
       counts.unchanged++;
       continue;
     }
     const values = itemValues(row, artistId);
+    let id: string;
     if (cur) {
       await db.query(`update items set ${setClause} where id = $1`, [cur.id, ...values]);
-      ids.set(row.airtable_record_id, cur.id);
+      id = cur.id;
       counts.updated++;
     } else {
       const ins = await db.query<{ id: string }>(`insert into items (${insertCols}) values (${insertParams}) returning id`, [
@@ -410,9 +431,11 @@ async function syncItems(
         row.airtable_record_id,
         ...values,
       ]);
-      ids.set(row.airtable_record_id, ins.rows[0].id);
+      id = ins.rows[0].id;
       counts.created++;
     }
+    ids.set(row.airtable_record_id, id);
+    await db.query(privateUpsert, [id, collectionId, ...privateValues(row)]);
   }
 
   // A record that has disappeared from Airtable is not deleted here — it is marked withdrawn, with

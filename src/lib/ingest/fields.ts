@@ -3,7 +3,8 @@
  *
  * The ingest reads by field ID (`returnFieldsByFieldId=true`), so a rename in Airtable changes
  * nothing here. A new field in Airtable is invisible until it is mapped below; nothing is lost in
- * the meantime because every record also travels whole in `items.airtable_raw`.
+ * the meantime because every record also travels whole in `item_private.airtable_raw` — the
+ * owner-only half of a work (SEC-02), since the raw record carries its price and its place.
  */
 
 export const COLLECTION_TABLE = "tblgdeKCkNfqVbvRK";

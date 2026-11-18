@@ -1,0 +1,146 @@
+# SEC-02 — The viewer sees the works, not the register
+
+_Spec drafted 17 Nov 2026 from CLAUDE.md's security requirement ("location and ownership are sensitive field
+classes"), principle 4 (private by default; visibility is architectural, RLS, not a preferences pane), and the open
+item since 10 Nov: make the viewer role least-privilege in the database before anyone outside the family is invited.
+Must merge before Brett's invitation on 30 Nov. Format: Feature Spec Kit v1.1. Branch `sec-02-viewer-role`._
+
+## JOB
+Anyone Michael invites to look at the collection can see the works and what is said about them, and nothing the
+register knows about money, place, ownership or private notes: enforced by the database, not by the screens.
+
+## THE EXPERIENCE
+Nothing visible changes. Catherina, Brett on 30 November, or anyone else invited as a viewer sees the wall, the
+works, the glass, the tombstone, how a work came ("Acquired from Stevenson, March 2016"), its provenance as entered,
+and, from M2-01, the approved texts. Michael, as owner, sees exactly what he sees today.
+
+What changes is underneath. Today the screens show no value, price, location or owner, but the database would still
+hand them to any signed-in viewer who asked it directly, with their own session. After SEC-02 it refuses: the
+purchase price, the current value and its date and source, the location and its tags, the condition, the admin and
+raw notes, the Airtable record as imported (which carries all of these), the owners and who owns what, and the
+documents (invoices, certificates) are readable by the owner alone, and only with both factors.
+
+## GOOD LOOKS LIKE
+- A test signs in as a viewer and asks the database directly, through the same interface the browser uses, for
+  every sensitive field, every owner, every document: it gets none. The owner gets all of them.
+- The wall, the single work, the glass and sign-in behave identically for owner and viewer.
+- An advisor is treated as a viewer until the advisor door (Door 3) is specced.
+- Nothing is copied or deleted in a way the ingest can't repeat: a second ingest run changes nothing, and the audit
+  log records every write as before.
+- New sensitive fields from M2-02 and M2-03 (location, condition, valuation) land on the owner-only side by default.
+
+## OUT OF SCOPE
+Any new screen. The advisor door's own permissions. Per-work sharing. Hiding provenance lines (some carry prices in
+their free text: that is M2-03's structured provenance, with Jean's field list).
+
+## TASTE ANCHOR
+A museum's public catalogue and its registrar's files: the same works, two doors, and the second one locked.
+
+## OPEN TRADE-OFFS — decided in the plan below
+1. How the database hides the fields. 2. What an advisor sees. 3. The documents.
+
+## PLAN — proposed 17 Nov 2026, for Michael's 70%
+
+**What gets built: one PR, about a day.** A migration that moves the sensitive fields of each work into an
+owner-only companion table, one row per work, with its own row-level security (owner and both factors), the audit
+trigger and the same import key; the owners and who-owns-what tables, and the documents, owner-only. The ingest
+writes both halves of a work in one transaction. The screens read only the visible half, through the viewer's own
+session, as now. Tests in CI against a real Postgres: viewer, advisor, stranger, half-signed-in owner and owner,
+field by field.
+
+**The three trade-offs.**
+1. **How the fields are hidden.** Proposed: **a separate owner-only table** for the sensitive fields. Postgres
+   security works by rows, so a table the viewer can't read at all is the simplest thing to prove and the hardest to
+   undo by accident. *Alternative:* column permissions and a special view for the owner. Less moving of data, but
+   easier for a later change to open by mistake.
+2. **The advisor.** Proposed: **a viewer until Door 3.** Brett is invited on 30 Nov to see the demo. What a
+   professional needs (location, condition, documents) is decided when his door is specced, with his terms.
+3. **The documents.** Proposed: **owner-only.** Invoices carry prices. A certificate of authenticity could be shown to
+   viewers later, by kind, if wanted.
+
+**Needs from you.** Your yes, and your 70% on the three. It builds on Workshop in about a day, and merges before 30 Nov.
+
+**Approved — 18 Nov 2026, 15:40.** Michael: yes, and all three as proposed. (1) The sensitive fields move to a
+separate owner-only table. (2) An advisor is treated as a viewer until the advisor door is specced; Brett on 30 Nov
+sees what any viewer sees. (3) Documents, invoices and certificates alike, owner-only. Builds on Workshop after
+M2-04b; merges, and its migration is applied, before Brett's invitation on 30 Nov. The note says in which order the
+migration is applied and the code goes live, so that no screen breaks between the two.
+
+---
+
+## BUILT — 18 Nov 2026, branch `sec-02-viewer-role`
+
+_A note to Michael from the session that built it. The order of going live is the second heading; read it first if
+you read one thing._
+
+**What changed.** One migration, `supabase/migrations/20261118180000_viewer_least_privilege.sql`, not applied. It
+creates `item_private` — one row per work, holding the purchase price and currency, the current value with its
+currency, date and source, the location and its tags, the condition note, the admin, comments and notes fields, and
+the Airtable record as imported — moves every work's values into it, and drops those fourteen columns from `items`.
+The new table is readable by the collection's owner alone and only with both factors (the same `is_collection_owner`
+the drafts table uses); the signed-in may not write it, the anonymous role gets nothing, every write is audited. The
+owners, who owns what, and the documents keep their rows and lose their readers: their policies now say owner too. An
+advisor reads what a viewer reads, as you ruled; Brett on 30 November sees the wall, the works, the glass, the
+tombstone, how a work came, and the provenance as entered. Nothing a screen reads moves: the wall and the single work
+select the same columns of `items` as before, and `gallery_pictures` is untouched. The ingest writes both halves of a
+work in its one transaction — the visible columns on `items`, the rest on `item_private`, found by the work's id and
+rewritten whenever the work is; the content hash covers the whole record, so a second run still changes nothing.
+`npm run ingest -- --report` counts the flagged works on the new table.
+
+**The order of going live — so that no screen breaks between the two.** Both orders are safe for every screen, and
+the reason is simple: the wall and the single work read eleven named columns of `items`, none of which moves, and no
+screen ever read a price, a value, a location or an owner. What breaks between the two steps is only the ingest, and
+it breaks whole — one transaction, a failed run row, nothing half-written. So:
+
+1. **Merge the pull request first.** Vercel puts the new code live. The screens are unchanged. The live database still
+   carries the old columns, which the code does not read. Run no `npm run ingest` from here until step 3: the new
+   ingest would fail at once (`item_private` does not exist yet), roll back, and leave the register as it was.
+2. **Then apply the migration** — `supabase db push` from the repository at the merged commit. It applies two files in
+   order: M2-04's drafts table (dated 17 Nov, still unapplied, your separate yes) and this one. The data moves inside
+   the push, and from that moment a viewer's session gets none of it. A screen open at that moment keeps working: it
+   asks only for columns that stay.
+3. **Then run the ingest once** — `npm run ingest`. Every work should come back unchanged (the hash covers both
+   halves and nothing in Airtable moved); if the register was edited in the meantime, the changed works are written in
+   both halves. Then `npm run ingest -- --report`.
+
+The reverse — migration first, then merge — is also safe for the screens, for the same reason; in that gap it is the
+old ingest that fails whole (its columns gone). Merge-first is the better order because the preview and the merged
+code both run against either schema, so the writer is in place before the data moves, and the moment the migration
+runs the enforcement begins with the matching code already live. Either way: no ingest between the two steps, and
+both done before the invitation on 30 November.
+
+**The three trade-offs, as approved.** (1) A separate owner-only table, not column grants: Postgres secures rows, so
+a table the viewer cannot read at all is the simplest thing to prove and the hardest to open by accident; the next
+sensitive field (M2-02's location and condition, M2-03's valuation) is added to `item_private`, never to `items`, and
+the test that lists the private columns is where it goes. (2) The advisor is a viewer until Door 3. (3) Documents,
+invoices and certificates alike, owner-only.
+
+**What stays on `items`, by the spec's list — say if any should move.** The status and the sold year (the wall hangs
+the sold works under their hairline); how a work came (`acquired_on`, `acquired_from`, `credit_gallery`), which the
+single work shows; `links`; the register flags (`has_high_res`, `has_low_res`, `has_invoice`, `has_coa`) and
+`high_res_note`; the empty M2 narrative fields (`collectors_story`, `work_context`); the bookkeeping (`airtable_record_id`,
+`airtable_modified_at`, `content_hash`, `source_removed_at`). None is money, place, ownership or a private note, and
+only the first two groups reach a screen.
+
+**Tests** — in `tests/db/ingest.test.ts`, against a real Postgres, beside the others. The migration's move: just
+before it runs, a work is written the old way with a price, a currency, a value, a location and its tags, a condition
+note, notes and a raw record; just after, every value is on `item_private` and not one of the fourteen columns is on
+`items`. Then SEC-02's own test: the wall's columns, the provenance and the pictures read identically for the owner,
+a viewer and an advisor; `item_private`, `owners`, `item_owners` and `documents` return rows to the owner with both
+factors and none to the viewer, the advisor, a stranger, a half-signed-in owner, or the anonymous role; the viewer
+asks for every sensitive field of a work it can see, by id, and for its owners and documents, and gets nothing; every
+one of the fourteen columns is gone from `items` for anyone who asks; a further ingest run changes nothing and both
+halves are audited as the ingest. The stranger, half-signed-in and no-write checks that run over every table now
+include the new one. Lint, typecheck, the 202 unit tests and the build pass on Workshop.
+
+**Not run on Workshop, said plainly.** The database tests — this feature's proof — did not run here: there is no
+Postgres on this Mac, and the throwaway one I tried to fetch into the session's scratch folder was refused by the
+session's safety rules. They run in CI against a real Postgres when the pull request is opened, with every migration
+applied in order on a fresh schema. Until that is green, the migration has been read, not executed.
+
+**Not done, and noticed.** `collection_members` is still readable by every member: a viewer can list who else is in
+the collection, by user id and role — not in this spec; say if it should go owner-only with the rest. The audit log
+keeps the old `items` rows with their values, as it should, and is owner-only already. The advisor door, per-work
+sharing, and the free text of provenance lines (M2-03) stay out of scope. This branch and `m2-04b-checker` both edit
+`src/lib/ingest/run.ts` and `tests/db/ingest.test.ts` in different places; whichever merges second should merge
+cleanly, and if not the conflict is a few lines.

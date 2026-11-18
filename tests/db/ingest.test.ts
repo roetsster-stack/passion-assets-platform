@@ -33,7 +33,9 @@ describe.skipIf(!url)("M1-01 · the record arrives", () => {
   let db: Client;
   const USER_A = "11111111-1111-4111-8111-111111111111"; // a member (owner)
   const USER_B = "22222222-2222-4222-8222-222222222222"; // a stranger
-  const ALL_TABLES = ["collections", "collection_members", "owners", "artists", "items", "item_owners", "provenance_events", "images", "documents", "ingest_runs", "audit_log", "drafts"];
+  const ALL_TABLES = ["collections", "collection_members", "owners", "artists", "items", "item_private", "item_owners", "provenance_events", "images", "documents", "ingest_runs", "audit_log", "drafts"];
+  /** The owner-only half of a work (SEC-02): off `items`, on `item_private`, read by the owner alone. */
+  const PRIVATE = ["purchase_price", "purchase_currency", "purchase_price_zar", "current_value", "current_value_currency", "valuation_date", "valuation_source", "location", "location_tags", "condition_note", "admin_notes", "comments_raw", "notes_raw", "airtable_raw"];
 
   function deps(overrides: Partial<IngestDeps> = {}): IngestDeps {
     return {
@@ -80,8 +82,11 @@ describe.skipIf(!url)("M1-01 · the record arrives", () => {
     const dir = path.join(root, "supabase", "migrations");
     for (const file of readdirSync(dir).filter((f) => f.endsWith(".sql")).sort()) {
       if (file.startsWith("20261103150000")) migrationSeed = await seedTwoPictures();
+      // Just before SEC-02's, a work as main's ingest wrote it: its money, place and notes on the items row itself.
+      if (file.startsWith("20261118180000")) privateSeed = await seedPrivateFields(migrationSeed.collectionId);
       await db.query(readFileSync(path.join(dir, file), "utf8"));
       if (file.startsWith("20261103150000")) migrationSeed.after = await readSeed(migrationSeed.itemId);
+      if (file.startsWith("20261118180000")) privateSeed.after = await readPrivateSeed(privateSeed.itemId);
     }
     await db.query("delete from collections where id = $1", [migrationSeed.collectionId]);
     await db.query("delete from audit_log");
@@ -108,11 +113,49 @@ describe.skipIf(!url)("M1-01 · the record arrives", () => {
     return (await db.query<{ storage_key: string; is_hero: boolean }>("select storage_key, is_hero from images where item_id = $1 order by created_at", [itemId])).rows;
   }
 
+  let privateSeed: { itemId: string; after: { moved: Record<string, unknown> | null; stillOnItems: string[] } };
+  async function seedPrivateFields(collectionId: string) {
+    const i = await db.query<{ id: string }>(
+      `insert into items (collection_id, title, purchase_price, purchase_currency, current_value, location, location_tags, condition_note, admin_notes, comments_raw, airtable_raw)
+       values ($1, 'Seed with a price', 1234.56, 'USD', 2000, 'Hilltop House', '{"Hilltop House","Framed"}', 'A scratch', 'Flagged', 'A comment', '{"fields": {"x": 1}}') returning id`,
+      [collectionId],
+    );
+    return { itemId: i.rows[0].id, after: { moved: null, stillOnItems: [] } };
+  }
+  async function readPrivateSeed(itemId: string) {
+    const moved =
+      (
+        await db.query(
+          "select purchase_price::text, purchase_currency, current_value::text, location, location_tags, condition_note, admin_notes, comments_raw, airtable_raw from item_private where item_id = $1",
+          [itemId],
+        )
+      ).rows[0] ?? null;
+    const stillOnItems = (
+      await db.query<{ column_name: string }>("select column_name from information_schema.columns where table_schema = 'public' and table_name = 'items' and column_name = any($1::text[])", [PRIVATE])
+    ).rows.map((r) => r.column_name);
+    return { moved, stillOnItems };
+  }
+
   it("M1-02a · the migration clears a work's second picture before it forbids one, so db push succeeds on main's data", () => {
     expect(migrationSeed.after).toEqual([
       { storage_key: "the-older-photograph", is_hero: true },
       { storage_key: "the-newer-photograph", is_hero: false },
     ]);
+  });
+
+  it("SEC-02 · the migration moves a work's money, place and notes into the owner-only table and takes the columns off items", () => {
+    expect(privateSeed.after.stillOnItems).toEqual([]);
+    expect(privateSeed.after.moved).toEqual({
+      purchase_price: "1234.56",
+      purchase_currency: "USD",
+      current_value: "2000.00",
+      location: "Hilltop House",
+      location_tags: ["Hilltop House", "Framed"],
+      condition_note: "A scratch",
+      admin_notes: "Flagged",
+      comments_raw: "A comment",
+      airtable_raw: { fields: { x: 1 } },
+    });
   });
 
   it("first run brings everything across; the second run changes nothing", async () => {
@@ -159,9 +202,9 @@ describe.skipIf(!url)("M1-01 · the record arrives", () => {
     expect(Number(runAudit.rows[0].n)).toBe(4); // two runs × (insert + final update)
   });
 
-  it("the whole record travels, not only the mapped fields", async () => {
+  it("the whole record travels, not only the mapped fields — on the owner-only half", async () => {
     const item = await db.query<{ airtable_raw: { fields: Record<string, unknown> } }>(
-      "select airtable_raw from items where airtable_record_id = 'recAAA00000000001'",
+      "select p.airtable_raw from item_private p join items i on i.id = p.item_id where i.airtable_record_id = 'recAAA00000000001'",
     );
     expect(item.rows[0].airtable_raw.fields[F.title]).toBe("Study in Grey");
     expect(JSON.stringify(item.rows[0].airtable_raw)).not.toContain("cdn.example.test");
@@ -322,6 +365,54 @@ describe.skipIf(!url)("M1-01 · the record arrives", () => {
     } finally {
       await db.query("select set_config('app.actor', '', false)");
     }
+  });
+
+  it("SEC-02 · the viewer sees the works, not the register: the wall reads the same for owner, viewer and advisor; money, place, notes, owners and documents are the owner's alone, with both factors", async () => {
+    const cid = (await db.query<{ id: string }>("select id from collections where name = 'Test Collection'")).rows[0].id;
+    const USER_C = "33333333-3333-4333-8333-333333333333"; // a viewer
+    const USER_D = "44444444-4444-4444-8444-444444444444"; // an advisor — a viewer until the advisor door is specced
+    await db.query("insert into auth.users (id, email) values ($1, 'c@example.test'), ($2, 'd@example.test') on conflict do nothing", [USER_C, USER_D]);
+    await db.query("insert into collection_members (collection_id, user_id, role) values ($1, $2, 'viewer'), ($1, $3, 'advisor') on conflict do nothing", [cid, USER_C, USER_D]);
+
+    // What a screen reads — the wall's columns, the provenance, the pictures — is identical for the owner, the viewer and the advisor.
+    const wall =
+      "select i.id, i.title, i.year, i.year_text, i.medium, i.dimensions_unframed, i.dimensions_framed, i.edition, i.acquired_on::text, i.acquired_from, i.status::text, a.display_name from items i left join artists a on a.id = i.artist_id where i.source_removed_at is null order by i.id";
+    const owner = await asUser(USER_A, "authenticated", wall);
+    expect(owner).toHaveLength(3);
+    expect(await asUser(USER_C, "authenticated", wall)).toEqual(owner);
+    expect(await asUser(USER_D, "authenticated", wall)).toEqual(owner);
+    const line = "select item_id, label, sort_order from provenance_events order by item_id, sort_order";
+    const ownerLine = await asUser(USER_A, "authenticated", line);
+    expect(ownerLine.length).toBeGreaterThan(0);
+    expect(await asUser(USER_C, "authenticated", line)).toEqual(ownerLine);
+    const pictures = "select item_id, width, height, placeholder from gallery_pictures order by item_id";
+    expect(await asUser(USER_C, "authenticated", pictures)).toEqual(await asUser(USER_A, "authenticated", pictures));
+
+    // What the register knows: the owner's alone, and only with both factors. A viewer, an advisor, a stranger, a half-signed-in owner: none of it.
+    for (const t of ["item_private", "owners", "item_owners", "documents"]) {
+      const count = `select count(*)::int as n from ${t}`;
+      expect((await asUser(USER_A, "authenticated", count))[0].n, `${t} for the owner`).toBeGreaterThan(0);
+      for (const u of [USER_C, USER_D, USER_B]) expect(await asUser(u, "authenticated", count), `${t} for ${u}`).toEqual([{ n: 0 }]);
+      expect(await asUser(USER_A, "authenticated", count, "aal1"), `${t} at aal1`).toEqual([{ n: 0 }]);
+      await expect(asUser(null, "anon", `select * from public.${t}`), `${t} anonymous`).rejects.toThrow(/permission denied/);
+    }
+    // Field by field, through the same interface a browser uses: the viewer asks for every sensitive field of a work it can see, by its id.
+    const item = (await asUser(USER_C, "authenticated", "select id from items order by id limit 1"))[0].id as string;
+    expect(await asUser(USER_C, "authenticated", `select ${PRIVATE.join(", ")} from item_private where item_id = '${item}'`)).toEqual([]);
+    expect(await asUser(USER_A, "authenticated", `select ${PRIVATE.join(", ")} from item_private where item_id = '${item}'`)).toHaveLength(1);
+    expect(await asUser(USER_C, "authenticated", `select o.name, o.kind from owners o join item_owners io on io.owner_id = o.id where io.item_id = '${item}'`)).toEqual([]);
+    expect(await asUser(USER_A, "authenticated", `select o.name from owners o join item_owners io on io.owner_id = o.id where io.item_id = '${item}'`)).toHaveLength(1);
+    expect(await asUser(USER_C, "authenticated", `select kind, storage_key from documents where item_id = '${item}'`)).toEqual([]);
+    // And the columns are not on items at all, for anyone: a screen that asked for them would get an error, not a value.
+    for (const c of PRIVATE) await expect(asUser(USER_A, "authenticated", `select ${c} from items limit 1`), c).rejects.toThrow(/does not exist/);
+
+    // The ingest still changes nothing on a second run; both halves are audited as the ingest's writes.
+    const before = Number((await db.query<{ n: string }>("select count(*) n from audit_log where table_name = 'item_private'")).rows[0].n);
+    expect(before).toBeGreaterThan(0);
+    const again = await runIngest(deps({ store: createMemoryStore() }));
+    expect(again.items).toEqual({ created: 0, updated: 0, unchanged: 3, removed: 0 });
+    expect(Number((await db.query<{ n: string }>("select count(*) n from audit_log where table_name = 'item_private'")).rows[0].n)).toBe(before);
+    expect((await db.query<{ l: string }>("select distinct actor_label l from audit_log where table_name = 'item_private'")).rows.map((r) => r.l)).toEqual(["ingest:airtable"]);
   });
 
   it("M1-02a · the ladder: every picture's renditions cut once; a master becomes the picture and is never returned to a page", async () => {
