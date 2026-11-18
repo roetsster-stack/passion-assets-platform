@@ -1,14 +1,16 @@
 /**
  * M2-04 · The desk. For one artist: the supplied texts first, then the allowlisted search; the
  * model asked for sentences tied to source numbers; any sentence resting on a source that does not
- * exist dropped; the rule checker; the second reading against the list; the lengths. What leaves
- * is listed beside what stays. Every draft carries the list's version and the model's name.
+ * exist dropped; the rule checker; the second reading against the list; then the lengths, last, so
+ * that a sentence the reading removes makes room for one that fits (M2-04b). A field left empty
+ * says so in the list's own words, never a blank. What leaves is listed beside what stays. Every
+ * draft carries the list's version and the model's name.
  */
 import type { Site } from "./allowlist";
 import { isLiving } from "./input";
 import type { ProhibitionList } from "./list";
 import type { Model } from "./model";
-import { checkField } from "./rules";
+import { checkRules, trimToLength } from "./rules";
 import { addUsage, NO_USAGE, NOT_ENOUGH, type ArtistInput, type Draft, type Field, type FieldDraft, type Flag, type Removal, type Sentence, type Source } from "./types";
 
 export type DeskDeps = {
@@ -41,6 +43,8 @@ export function dropUncited(sentences: Sentence[], sources: Source[]): { kept: S
   return { kept, removed };
 }
 
+const label = (field: Field) => (field === "biography" ? "biography" : "why they matter");
+
 export async function draftArtist(artist: ArtistInput, deps: DeskDeps): Promise<Draft> {
   const notes: string[] = [];
   let usage = NO_USAGE;
@@ -60,6 +64,7 @@ export async function draftArtist(artist: ArtistInput, deps: DeskDeps): Promise<
   let model = deps.model.name;
   const fields: FieldDraft[] = [];
   const living = isLiving(artist);
+  const artistNames = [artist.surname, artist.givenName ?? ""].filter((n) => n.length >= 3);
 
   if (sources.length === 0) {
     // Nothing to write from: the list's own answer, and no call to the model (rule 4, rule 10).
@@ -84,10 +89,9 @@ export async function draftArtist(artist: ArtistInput, deps: DeskDeps): Promise<
     const cited = dropUncited(sentences, sources);
     removed.push(...cited.removed);
 
-    const ruled = checkField(field, cited.kept, sources, { living, neverName: deps.neverName, artistNames: [artist.surname, artist.givenName ?? ""].filter((n) => n.length >= 3) });
-    removed.push(...ruled.removed.filter((r) => r.rule !== "length"));
+    const ruled = checkRules(field, cited.kept, sources, { living, neverName: deps.neverName, artistNames });
+    removed.push(...ruled.removed);
     let kept = ruled.kept;
-    const lengthRemovals = ruled.removed.filter((r) => r.rule === "length");
 
     if (kept.length > 0) {
       const reading = await deps.model.read({ artist, list: deps.list, field, sentences: kept, sources });
@@ -97,13 +101,24 @@ export async function draftArtist(artist: ArtistInput, deps: DeskDeps): Promise<
         const v = reading.verdicts.find((x) => x.index === i + 1);
         if (v?.verdict === "remove") removed.push({ text: s.text, rule: "reading", why: `the second reading${v.rule ? ` (rule ${v.rule})` : ""}: ${v.why || "removed"}` });
         else {
-          if (v?.verdict === "flag") flagged.push({ text: s.text, why: v.why || "the second reading doubted it" });
+          // a sentence the reading gave no verdict on is doubted, not passed (M2-04b)
+          if (!v) flagged.push({ text: s.text, why: "the second reading gave no verdict" });
+          else if (v.verdict === "flag") flagged.push({ text: s.text, why: v.why || "the second reading doubted it" });
           after.push(s);
         }
       });
       kept = after;
     }
-    removed.push(...lengthRemovals);
+
+    // The lengths last: what the reading removed has made room.
+    const trimmed = trimToLength(field, kept);
+    removed.push(...trimmed.removed);
+    kept = trimmed.kept;
+
+    if (kept.length === 0) {
+      kept = [{ text: NOT_ENOUGH, sources: [] }];
+      notes.push(`${label(field)}: nothing survived the checks — the list's own sentence stands`);
+    }
 
     fields.push({ field, sentences: kept, text: kept.map((s) => s.text).join(" "), removed, flagged });
   }

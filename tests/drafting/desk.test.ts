@@ -1,7 +1,8 @@
 /**
  * M2-04 · The desk, against a stand-in model: supplied texts first, then the search on the
  * allowlist only; a sentence on no source or on a source that does not exist is dropped; the rule
- * checker and the second reading remove and flag; "Not enough is known yet." stands on nothing;
+ * checker and the second reading remove and flag; the lengths come after the reading, and a field
+ * left empty says "Not enough is known yet." (M2-04b); a sentence with no verdict is doubted;
  * every draft carries the list's version and the model's name; the input holds nothing sensitive.
  */
 import path from "node:path";
@@ -55,7 +56,11 @@ describe("the desk", () => {
           { text: "She paints the harbour.", sources: [2] },
           { text: "She painted a portrait of Sample Roets.", sources: [3] },
         ],
-        whyTheyMatter: [{ text: "Harbour Gallery considers her “one of the most important painters of her generation”.", sources: [3] }, { text: "A second sentence.", sources: [3] }],
+        whyTheyMatter: [
+          { text: "Harbour Gallery considers her “one of the most important painters of her generation”.", sources: [3] },
+          { text: "A second sentence.", sources: [3] },
+          { text: "A third sentence.", sources: [3] },
+        ],
       },
       verdicts: (req) =>
         req.sentences.map((s, i) => ({
@@ -96,8 +101,8 @@ describe("the desk", () => {
     expect(bio.flagged).toEqual([{ text: "She paints the harbour.", why: "doubtful" }]);
 
     const why = draft.fields.find((f) => f.field === "why_they_matter")!;
-    expect(why.sentences).toHaveLength(1);
-    expect(why.removed).toEqual([{ text: "A second sentence.", rule: "length", why: "why they matter is one sentence" }]);
+    expect(why.sentences).toHaveLength(2);
+    expect(why.removed).toEqual([{ text: "A third sentence.", rule: "length", why: "why they matter is at most two sentences" }]);
     // only the sources the kept sentences cite travel with the draft
     expect(draft.sources.map((s) => s.n)).toEqual([1, 2, 3]);
     expect(draft.usage.requests).toBe(1 + 1 + 2);
@@ -126,6 +131,45 @@ describe("the desk", () => {
     expect(draft.fields[0].text).toBe(`She paints. ${NOT_ENOUGH}`);
     expect(draft.fields[1].text).toBe(NOT_ENOUGH);
     expect(draft.fields.flatMap((f) => f.removed)).toEqual([]);
+  });
+
+  it("reads before it cuts — a sentence the reading removes makes room for one that fits — and a field emptied says so in the list's words", async () => {
+    const long = "Harbour Gallery " + "word ".repeat(53).trim() + ".";
+    const { model, calls } = standIn({
+      found,
+      answer: {
+        biography: [{ text: "She lives in Cape Town.", sources: [3] }],
+        whyTheyMatter: [
+          { text: "Harbour Gallery calls her a painter of light.", sources: [3] },
+          { text: long, sources: [3] },
+          { text: "She shows in Cape Town.", sources: [3] },
+        ],
+      },
+      verdicts: (req) =>
+        req.field === "biography"
+          ? [{ index: 1, verdict: "remove", rule: 4, why: "the passage does not say so" }]
+          : req.sentences.map((s, i) => ({ index: i + 1, verdict: s.text === long ? "remove" : "keep", rule: s.text === long ? 4 : null, why: "" })),
+    });
+    const draft = await draftArtist(painter, { model, list, sites, supplied });
+    const why = draft.fields.find((f) => f.field === "why_they_matter")!;
+    // the reading saw all three; under M2-04 the third would have been cut for length before anyone read it
+    expect(calls.read.find((r) => r.field === "why_they_matter")!.sentences).toHaveLength(3);
+    expect(why.sentences.map((s) => s.text)).toEqual(["Harbour Gallery calls her a painter of light.", "She shows in Cape Town."]);
+    expect(why.removed.map((r) => r.rule)).toEqual(["reading"]);
+    const bio = draft.fields.find((f) => f.field === "biography")!;
+    expect(bio.sentences).toEqual([{ text: NOT_ENOUGH, sources: [] }]);
+    expect(bio.text).toBe(NOT_ENOUGH);
+    expect(bio.removed).toHaveLength(1);
+    expect(draft.notes).toContain("biography: nothing survived the checks — the list's own sentence stands");
+  });
+
+  it("a sentence the reading gives no verdict on is flagged, never passed", async () => {
+    const { model } = standIn({ found, answer: { biography: [{ text: "She lives in Cape Town.", sources: [3] }], whyTheyMatter: [] }, verdicts: () => [] });
+    const draft = await draftArtist(painter, { model, list, sites, supplied });
+    const bio = draft.fields.find((f) => f.field === "biography")!;
+    expect(bio.sentences.map((s) => s.text)).toEqual(["She lives in Cape Town."]);
+    expect(bio.flagged).toEqual([{ text: "She lives in Cape Town.", why: "the second reading gave no verdict" }]);
+    expect(draft.fields.find((f) => f.field === "why_they_matter")!.text).toBe(NOT_ENOUGH);
   });
 
   it("drops a sentence on no source or on a source that does not exist, before any rule", () => {

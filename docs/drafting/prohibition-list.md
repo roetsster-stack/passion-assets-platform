@@ -1,6 +1,6 @@
 <!-- The law of the drafting desk (M2-04). src/lib/drafting reads this file at run time and refuses to run without it; every draft records this file's git hash as the list's version. Edit the words below — the desk follows them, and the hash changes with them. The section is the one in docs/specs/M2-04_prohibition_list.md, word for word. -->
 
-## THE LIST — as Michael approved it, 17 Nov 2026 (rule 6 his wording)
+## THE LIST — as Michael approved it, 17 Nov 2026 (rule 6 his wording; the register line as M2-04b set it, 18 Nov)
 1. **Never invent provenance.** No owner, sale, exhibition, publication or date that is not in the record or a cited source.
 2. **Never state or imply a value.** No price, estimate, auction result, market, "investment", "blue-chip", "sought-after",
    "appreciating". Enjoyment is the front door; value lives behind it (principle 1).
@@ -19,4 +19,4 @@
 9. **A draft is a draft.** It is marked as such until a named person approves it; the approval is dated and kept.
 10. **When unsure, write less.** A shorter true sentence beats a longer guessed one. "Not enough is known yet" is an answer.
 
-Register: plain, warm, exact — a museum's wall text, not a gallery's press release.
+Register: warm, exact and alive to the work — a good museum's audio guide, not a gallery's press release and not a CV.

@@ -55,8 +55,10 @@ export function asVerdicts(x: unknown): Verdict[] {
   if (!Array.isArray(list)) throw new DeskError("the second reading is not a list of verdicts");
   return list.map((v, i) => {
     const o = (v ?? {}) as Record<string, unknown>;
-    const verdict = o.verdict === "remove" || o.verdict === "flag" ? o.verdict : "keep";
+    // a verdict the desk does not recognise is a doubt, never a pass (M2-04b)
+    const verdict = o.verdict === "keep" || o.verdict === "remove" || o.verdict === "flag" ? o.verdict : "flag";
     if (!isInt(o.index)) throw new DeskError(`verdict ${i + 1} names no sentence`);
-    return { index: o.index, verdict, rule: isInt(o.rule) ? o.rule : null, why: typeof o.why === "string" ? o.why : "" };
+    const why = typeof o.why === "string" && o.why ? o.why : verdict === "flag" && o.verdict !== "flag" ? "the second reading gave no verdict" : "";
+    return { index: o.index, verdict, rule: isInt(o.rule) ? o.rule : null, why };
   });
 }

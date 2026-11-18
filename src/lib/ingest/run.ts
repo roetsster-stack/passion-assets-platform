@@ -362,10 +362,17 @@ async function syncArtists(db: Client, collectionId: string, wanted: Map<string,
   return ids;
 }
 
-/** Artists no longer referenced by any work — a renamed artist leaves one behind. Runs after items. */
+/**
+ * Artists no longer referenced by any work — a renamed artist leaves one behind. Runs after items.
+ * An artist with drafts stays (M2-04b): an approved text is kept (rule 9), and the drafts table
+ * refuses the delete in any case; the clause only applies once that table exists.
+ */
 async function removeOrphanArtists(db: Client, collectionId: string, wanted: Map<string, ArtistRow>, counts: Counts) {
+  const drafts = (await db.query<{ ok: boolean }>("select to_regclass('public.drafts') is not null as ok")).rows[0].ok;
   const orphaned = await db.query<{ id: string }>(
-    "delete from artists a where a.collection_id = $1 and not exists (select 1 from items i where i.artist_id = a.id) and a.normalized_key <> all($2::text[]) returning id",
+    `delete from artists a where a.collection_id = $1 and not exists (select 1 from items i where i.artist_id = a.id) and a.normalized_key <> all($2::text[])${
+      drafts ? " and not exists (select 1 from drafts d where d.artist_id = a.id)" : ""
+    } returning id`,
     [collectionId, [...wanted.keys()]],
   );
   counts.removed += orphaned.rowCount ?? 0;
