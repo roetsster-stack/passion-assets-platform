@@ -4,7 +4,8 @@
  *
  * Three phases:
  *   A. read and map (no writes)
- *   B. one transaction: artists, items, ownership, provenance
+ *   B. one transaction: artists, items — both halves of each work, the visible and the owner-only
+ *      (SEC-02) —, ownership, provenance — both halves of each line too
  *   C. attachments, one at a time, each committed as it lands — so an interrupted run resumes
  *      where it stopped and never leaves a half-written picture.
  *   D. the ladder (M1-02a): every Airtable photograph has its renditions cut, then each work's
@@ -67,6 +68,7 @@ export type IngestDeps = {
   log?: (msg: string) => void;
 };
 
+/** The visible half of a work — the columns of `items`, which any member of the collection may read (SEC-02). */
 const ITEM_COLUMNS = [
   "artist_id",
   "title",
@@ -78,32 +80,41 @@ const ITEM_COLUMNS = [
   "dimensions_unframed",
   "edition",
   "acquired_on",
-  "purchase_price",
-  "purchase_currency",
-  "purchase_price_zar",
   "acquired_from",
   "credit_gallery",
-  "current_value",
-  "current_value_currency",
-  "valuation_date",
   "status",
   "sold_year",
-  "location",
-  "location_tags",
-  "condition_note",
-  "admin_notes",
-  "comments_raw",
-  "notes_raw",
   "links",
   "has_high_res",
   "has_low_res",
   "has_invoice",
   "has_coa",
   "high_res_note",
-  "airtable_modified_at",
-  "airtable_raw",
   "content_hash",
   "source_removed_at",
+] as const;
+
+/**
+ * The owner-only half — the columns of `item_private` (SEC-02): the money, the valuation and its date
+ * (Airtable's "Last Modified" watches Current Value only, so it is the date the value was last set —
+ * the review of PR #13, blocker 1), place and state, the private notes, and the record as imported.
+ * One row per work, written in the same transaction as the visible half, readable by the owner alone.
+ */
+const PRIVATE_COLUMNS = [
+  "purchase_price",
+  "purchase_currency",
+  "purchase_price_zar",
+  "current_value",
+  "current_value_currency",
+  "valuation_date",
+  "airtable_modified_at",
+  "location",
+  "location_tags",
+  "condition_note",
+  "admin_notes",
+  "comments_raw",
+  "notes_raw",
+  "airtable_raw",
 ] as const;
 
 function itemValues(row: ItemRow, artistId: string | null): unknown[] {
@@ -118,32 +129,37 @@ function itemValues(row: ItemRow, artistId: string | null): unknown[] {
     row.dimensions_unframed,
     row.edition,
     row.acquired_on,
-    row.purchase_price,
-    row.purchase_currency,
-    row.purchase_price_zar,
     row.acquired_from,
     row.credit_gallery,
-    row.current_value,
-    row.current_value_currency,
-    row.valuation_date,
     row.status,
     row.sold_year,
-    row.location,
-    row.location_tags,
-    row.condition_note,
-    row.admin_notes,
-    row.comments_raw,
-    row.notes_raw,
     row.links,
     row.has_high_res,
     row.has_low_res,
     row.has_invoice,
     row.has_coa,
     row.high_res_note,
-    row.airtable_modified_at,
-    JSON.stringify(row.raw),
     row.content_hash,
     null, // source_removed_at: present in the source, so not removed
+  ];
+}
+
+function privateValues(row: ItemRow): unknown[] {
+  return [
+    row.purchase_price,
+    row.purchase_currency,
+    row.purchase_price_zar,
+    row.current_value,
+    row.current_value_currency,
+    row.valuation_date,
+    row.airtable_modified_at,
+    row.location,
+    row.location_tags,
+    row.condition_note,
+    row.admin_notes,
+    row.comments_raw,
+    row.notes_raw,
+    JSON.stringify(row.raw),
   ];
 }
 
@@ -385,8 +401,13 @@ async function syncItems(
   artistIds: Map<string, string>,
   counts: Counts,
 ): Promise<Map<string, string>> {
-  const existing = await db.query<{ id: string; airtable_record_id: string; content_hash: string | null; artist_id: string | null; source_removed_at: Date | null }>(
-    "select id, airtable_record_id, content_hash, artist_id, source_removed_at from items where collection_id = $1 and airtable_record_id is not null",
+  // Each work with whether its owner-only half is there: a work whose private row is missing is written
+  // again whatever its hash (the review's nit 13). Before SEC-02's migration this query fails, and with it
+  // the whole run, before anything is written.
+  const existing = await db.query<{ id: string; airtable_record_id: string; content_hash: string | null; artist_id: string | null; source_removed_at: Date | null; has_private: boolean }>(
+    `select i.id, i.airtable_record_id, i.content_hash, i.artist_id, i.source_removed_at, p.item_id is not null as has_private
+       from items i left join item_private p on p.item_id = i.id
+      where i.collection_id = $1 and i.airtable_record_id is not null`,
     [collectionId],
   );
   const byRec = new Map(existing.rows.map((r) => [r.airtable_record_id, r]));
@@ -396,20 +417,27 @@ async function syncItems(
   const setClause = ITEM_COLUMNS.map((c, i) => `${c} = $${i + 2}`).join(", ");
   const insertCols = ["collection_id", "airtable_record_id", ...ITEM_COLUMNS].join(", ");
   const insertParams = ["collection_id", "airtable_record_id", ...ITEM_COLUMNS].map((_, i) => `$${i + 1}`).join(", ");
+  // The owner-only half: one row per work, found by the work's id and rewritten whenever the work is.
+  const privateCols = ["item_id", "collection_id", ...PRIVATE_COLUMNS];
+  const privateUpsert = `insert into item_private (${privateCols.join(", ")}) values (${privateCols.map((_, i) => `$${i + 1}`).join(", ")})
+     on conflict (item_id) do update set ${PRIVATE_COLUMNS.map((c) => `${c} = excluded.${c}`).join(", ")}`;
 
   for (const { row } of items) {
     seen.add(row.airtable_record_id);
     const artistId = row.artist_key ? (artistIds.get(row.artist_key) ?? null) : null;
     const cur = byRec.get(row.airtable_record_id);
-    if (cur && cur.content_hash === row.content_hash && cur.artist_id === artistId && cur.source_removed_at === null) {
+    // The content hash covers the whole mapped record, both halves: unchanged means neither is touched — unless
+    // the private half is missing, in which case the work is written again.
+    if (cur && cur.content_hash === row.content_hash && cur.artist_id === artistId && cur.source_removed_at === null && cur.has_private) {
       ids.set(row.airtable_record_id, cur.id);
       counts.unchanged++;
       continue;
     }
     const values = itemValues(row, artistId);
+    let id: string;
     if (cur) {
       await db.query(`update items set ${setClause} where id = $1`, [cur.id, ...values]);
-      ids.set(row.airtable_record_id, cur.id);
+      id = cur.id;
       counts.updated++;
     } else {
       const ins = await db.query<{ id: string }>(`insert into items (${insertCols}) values (${insertParams}) returning id`, [
@@ -417,9 +445,11 @@ async function syncItems(
         row.airtable_record_id,
         ...values,
       ]);
-      ids.set(row.airtable_record_id, ins.rows[0].id);
+      id = ins.rows[0].id;
       counts.created++;
     }
+    ids.set(row.airtable_record_id, id);
+    await db.query(privateUpsert, [id, collectionId, ...privateValues(row)]);
   }
 
   // A record that has disappeared from Airtable is not deleted here — it is marked withdrawn, with
@@ -494,10 +524,15 @@ async function syncProvenance(
   const orderOf = new Map<string, Map<string, number>>();
   for (const { row } of items) orderOf.set(row.airtable_record_id, new Map(row.provenance_record_ids.map((id, i) => [id, i])));
 
-  const existing = await db.query<{ id: string; airtable_record_id: string; item_id: string; content_hash: string | null }>(
-    "select id, airtable_record_id, item_id, content_hash from provenance_events where collection_id = $1 and airtable_record_id is not null and item_id = any($2::uuid[])",
+  // Each line with whether its owner-only half — the reviews column and the raw record (SEC-02) — is there.
+  const existing = await db.query<{ id: string; airtable_record_id: string; item_id: string; content_hash: string | null; has_private: boolean }>(
+    `select e.id, e.airtable_record_id, e.item_id, e.content_hash, p.provenance_event_id is not null as has_private
+       from provenance_events e left join provenance_private p on p.provenance_event_id = e.id
+      where e.collection_id = $1 and e.airtable_record_id is not null and e.item_id = any($2::uuid[])`,
     [collectionId, [...itemIds.values()]],
   );
+  const privateUpsert = `insert into provenance_private (provenance_event_id, collection_id, reviews, airtable_raw) values ($1, $2, $3, $4)
+     on conflict (provenance_event_id) do update set reviews = excluded.reviews, airtable_raw = excluded.airtable_raw`;
   const byKey = new Map(existing.rows.map((r) => [`${r.airtable_record_id}|${r.item_id}`, r]));
   const want = new Set<string>();
 
@@ -510,24 +545,32 @@ async function syncProvenance(
       const key = `${p.airtable_record_id}|${itemId}`;
       want.add(key);
       const cur = byKey.get(key);
-      if (cur && cur.content_hash === hash) {
+      if (cur && cur.content_hash === hash && cur.has_private) {
         counts.unchanged++;
         continue;
       }
       const raw = JSON.stringify(p.raw);
+      let id: string;
       if (cur) {
-        await db.query(
-          "update provenance_events set label=$2, details_url=$3, reviews=$4, added_info=$5, sort_order=$6, airtable_raw=$7, content_hash=$8 where id=$1",
-          [cur.id, p.label, p.details_url, p.reviews, p.added_info, sortOrder, raw, hash],
-        );
+        await db.query("update provenance_events set label=$2, details_url=$3, added_info=$4, sort_order=$5, content_hash=$6 where id=$1", [
+          cur.id,
+          p.label,
+          p.details_url,
+          p.added_info,
+          sortOrder,
+          hash,
+        ]);
+        id = cur.id;
         counts.updated++;
       } else {
-        await db.query(
-          "insert into provenance_events (collection_id, item_id, label, details_url, reviews, added_info, sort_order, airtable_record_id, airtable_raw, content_hash) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
-          [collectionId, itemId, p.label, p.details_url, p.reviews, p.added_info, sortOrder, p.airtable_record_id, raw, hash],
+        const ins = await db.query<{ id: string }>(
+          "insert into provenance_events (collection_id, item_id, label, details_url, added_info, sort_order, airtable_record_id, content_hash) values ($1,$2,$3,$4,$5,$6,$7,$8) returning id",
+          [collectionId, itemId, p.label, p.details_url, p.added_info, sortOrder, p.airtable_record_id, hash],
         );
+        id = ins.rows[0].id;
         counts.created++;
       }
+      await db.query(privateUpsert, [id, collectionId, p.reviews, raw]);
     }
   }
   for (const r of existing.rows) {
