@@ -199,8 +199,11 @@ the approved text where it is. In plain code: which draft of a field counts, wha
 order, the note the desk answers; the approved texts' shape held (a link a browser may follow is
 http(s) only), the sources combined and dated, the title in italics; the attribution fail-safe, the
 address and studio checks with their near-misses, the "shortened" entry in the desk and the report,
-the note in the prompt and the note recorded. The database tests cannot run on Workshop (no
-Postgres); CI runs them on Postgres 16.
+the note in the prompt and the note recorded. Workshop has no Postgres, so for this build the whole
+database test file was run here against PGlite (a Postgres 17.5 compiled to WebAssembly, behind its
+wire-protocol socket) — all 15 pass, the new migration applied as CI applies it; CI runs them again
+on Postgres 16 when the pull request is opened (CI runs on pull requests and on `main`, not on a
+branch push).
 
 **Order of going live.** The migration is additive — new columns, one function, one view; nothing on
 `main` today reads them — so it is safe to apply before the merge, and the preview can then be judged

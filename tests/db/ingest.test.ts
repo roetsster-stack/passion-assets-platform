@@ -726,7 +726,7 @@ describe.skipIf(!url)("M1-01 · the record arrives", () => {
     for (const u of [USER_B, USER_C, USER_D]) await expect(asUser(u, "authenticated", `select decide_draft('${bio}', 'approved')`), u).rejects.toThrow(refused);
     await expect(asUser(USER_A, "authenticated", `select decide_draft('${bio}', 'approved')`, "aal1")).rejects.toThrow(refused);
     await expect(asUser(USER_A, "authenticated", `select decide_draft('00000000-0000-4000-8000-00000000dead', 'approved')`)).rejects.toThrow(refused);
-    await expect(asUser(null, "anon", `select decide_draft('${bio}', 'approved')`)).rejects.toThrow(/permission denied|only the collection's owner/);
+    await expect(asUser(null, "anon", `select public.decide_draft('${bio}', 'approved')`)).rejects.toThrow(/permission denied/);
     // a rejection carries a note; a decision is one of two words
     await expect(asUser(USER_A, "authenticated", `select decide_draft('${why}', 'rejected')`)).rejects.toThrow(/a rejection carries a note/);
     await expect(asUser(USER_A, "authenticated", `select decide_draft('${why}', 'rejected', '  ')`)).rejects.toThrow(/a rejection carries a note/);
