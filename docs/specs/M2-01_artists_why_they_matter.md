@@ -282,4 +282,4 @@ migration file changed in place since it is not yet applied._
 - **The missing test.** USER_B now owns a second collection with an artist and a draft: refused on this
   collection's draft, half-signed-in or not; this owner refused on theirs; each owner reads their own
   approved text alone through the view, and nothing of the other's drafts.
-- Tests: 290 pass here; the 15 database tests ran again against PGlite with the changed migration.
+- Tests: 284 pass here without a database; the 15 database tests ran again against PGlite with the changed migration, all passing — 299 in all.
