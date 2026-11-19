@@ -3,7 +3,7 @@
  *
  *   npm run draft -- --artist "Halter" --artist "Kentridge"   drafts for the artists named (surname or name, any case)
  *   npm run draft -- --artists 5                               the first five artists, in the register's order
- *   npm run draft -- --all                                     every artist without an approved text (M2-01)
+ *   npm run draft -- --all                                     every artist unless both texts are approved (M2-01)
  *   npm run draft -- --artist "Halter" --report ~/Desktop/Drafts.md   where the readable report lands
  *   npm run draft -- --artist "Halter" --no-db                 the report only; nothing written to the table
  *
@@ -26,7 +26,7 @@ import { sslFor } from "../src/lib/db";
 import { loadAllowlist, resolving } from "../src/lib/drafting/allowlist";
 import { anthropicModel } from "../src/lib/drafting/anthropic";
 import { draftArtist } from "../src/lib/drafting/desk";
-import { answersFor, type DraftRow } from "../src/lib/drafting/pending";
+import { answersFor, latestPerField, wantsDraft, type DraftRow } from "../src/lib/drafting/pending";
 import { ARTIST_COLUMNS, toArtistInput, WORK_COLUMNS, type ArtistRow, type WorkRow } from "../src/lib/drafting/input";
 import { loadList } from "../src/lib/drafting/list";
 import { renderReport, type RunMeta } from "../src/lib/drafting/report";
@@ -81,14 +81,13 @@ async function main() {
     const ownerName = collectionName.replace(/\s+collection$/i, "").trim();
     const neverName = ownerName && ownerName !== collectionName ? [ownerName, ownerName.split(/\s+/).slice(-1)[0]] : [];
 
-    // The minimal input: these columns and no others (rule 5). Whether a text is approved rides along
-    // for --all only and never reaches the model: toArtistInput picks its fields by name.
-    const all = (
-      await db.query<ArtistRow & { approved: boolean }>(
-        `select ${ARTIST_COLUMNS.join(", ")}, verified_at is not null as approved from artists where collection_id = $1 order by surname, given_name`,
-        [cid],
-      )
-    ).rows;
+    // The minimal input: these columns and no others (rule 5).
+    const all = (await db.query<ArtistRow>(`select ${ARTIST_COLUMNS.join(", ")} from artists where collection_id = $1 order by surname, given_name`, [cid])).rows;
+    // --all: every artist unless the newest draft of each field is approved — a field sent back with a note is
+    // drafted again, whatever the other field (M2-01, the review of PR #14). The drafts' statuses never reach the model.
+    const latest = every
+      ? latestPerField((await db.query<DraftRow>("select id, artist_id, field, status, created_at, decided_at, note from drafts where collection_id = $1 and subject = 'artist'", [cid])).rows)
+      : null;
     const chosen = names.length
       ? names.map((name) => {
           const key = fold(name);
@@ -97,10 +96,10 @@ async function main() {
           if (matches.length > 1) throw new Error(`"${name}" matches ${matches.map((a) => a.display_name).join(", ")} — say which.`);
           return matches[0];
         })
-      : every
-        ? all.filter((a) => !a.approved)
+      : latest
+        ? all.filter((a) => wantsDraft(latest.get(a.id)))
         : all.slice(0, count);
-    if (every) console.log(`--all: ${chosen.length} of ${all.length} artist(s) have no approved text`);
+    if (every) console.log(`--all: ${chosen.length} of ${all.length} artist(s) have a field whose newest draft is not approved`);
     const works = (
       await db.query<WorkRow>(`select ${WORK_COLUMNS.join(", ")} from items where collection_id = $1 and source_removed_at is null and artist_id = any($2::uuid[]) order by year nulls last, title`, [
         cid,

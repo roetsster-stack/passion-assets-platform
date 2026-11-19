@@ -86,6 +86,11 @@ describe.skipIf(!url)("M1-01 · the record arrives", () => {
     await db.query(
       "alter default privileges in schema public grant all on tables to anon, authenticated, service_role; alter default privileges in schema public grant all on sequences to anon, authenticated, service_role;",
     );
+    // …and lets them use the schema and execute every function. Reproduce that too, so that a refusal proves the
+    // table's, the function's or the view's own grant, never the schema's (the review of PR #14, should-fix 6).
+    await db.query(
+      "grant usage on schema public to anon, authenticated, service_role; alter default privileges in schema public grant execute on functions to anon, authenticated, service_role;",
+    );
     // Every migration, in order — the schema as production will have it. Just before M1-02a's,
     // the register as main's ingest could have left it: a work carrying two pictures, because the
     // first photograph was marked at insert and never cleared when a newer one was added in front.
@@ -700,23 +705,31 @@ describe.skipIf(!url)("M1-01 · the record arrives", () => {
         throw err;
       }
     }
+    // The desk stores one shared source list on both fields' drafts: here the text cites [1] and not [2], the other field's passage.
     const sources = JSON.stringify([
       { n: 1, kind: "web", title: "Test Painter", publisher: "Harbour Gallery", link: "https://harbour-gallery.example/p", passage: "She paints the harbour.", readAt: "2026-11-19T07:30:00.000Z" },
+      { n: 2, kind: "web", title: "Test Painter: a reading", publisher: "Tate", link: "https://tate.example/p", passage: "A passage only the other field cites.", readAt: "2026-11-19T07:30:00.000Z" },
     ]);
+    // The owner of another collection: USER_B owns one of their own, with an artist and a draft in it.
+    const other = (await db.query<{ id: string }>("insert into collections (name) values ('Other Collection') returning id")).rows[0].id;
+    await db.query("insert into collection_members (collection_id, user_id, role) values ($1, $2, 'owner') on conflict do nothing", [other, USER_B]);
+    const otherArtist = (await db.query<{ id: string }>("insert into artists (collection_id, surname, given_name, display_name, normalized_key) values ($1, 'Other', 'An', 'An Other', 'other|an') returning id", [other])).rows[0].id;
     await db.query("select set_config('app.actor', 'draft', false)");
-    let bioOld: string, bio: string, why: string;
+    let bioOld: string, bio: string, why: string, notEnough: string, otherDraft: string;
     try {
-      const insert = async (field: string, text: string, created: string) =>
+      const insert = async (field: string, text: string, created: string, forArtist = artist.id, forCollection = cid) =>
         (
           await db.query<{ id: string }>(
             `insert into drafts (collection_id, subject, artist_id, field, text, sentences, sources, removed, flagged, list_version, model, created_at)
              values ($1, 'artist', $2, $3, $4, $5::jsonb, $6::jsonb, '[{"text":"Her work is a sound investment.","rule":2,"why":"a word of the market"}]', '[]', 'abc', 'claude-test-5', $7) returning id`,
-            [cid, artist.id, field, text, JSON.stringify([{ text, sources: [1] }]), sources, created],
+            [forCollection, forArtist, field, text, JSON.stringify([{ text, sources: text === "Not enough is known yet." ? [] : [1] }]), sources, created],
           )
         ).rows[0].id;
       bioOld = await insert("biography", "She painted the harbour, once.", "2026-11-17T10:00:00Z");
       bio = await insert("biography", "She paints the harbour.", "2026-11-19T10:00:00Z");
+      notEnough = await insert("why_they_matter", "Not enough is known yet.", "2026-11-18T10:00:00Z");
       why = await insert("why_they_matter", "Harbour Gallery calls the paintings “exact”.", "2026-11-19T10:00:00Z");
+      otherDraft = await insert("biography", "Elsewhere, a painter.", "2026-11-19T10:00:00Z", otherArtist, other);
     } finally {
       await db.query("select set_config('app.actor', '', false)");
     }
@@ -726,13 +739,20 @@ describe.skipIf(!url)("M1-01 · the record arrives", () => {
     for (const u of [USER_B, USER_C, USER_D]) await expect(asUser(u, "authenticated", `select decide_draft('${bio}', 'approved')`), u).rejects.toThrow(refused);
     await expect(asUser(USER_A, "authenticated", `select decide_draft('${bio}', 'approved')`, "aal1")).rejects.toThrow(refused);
     await expect(asUser(USER_A, "authenticated", `select decide_draft('00000000-0000-4000-8000-00000000dead', 'approved')`)).rejects.toThrow(refused);
-    await expect(asUser(null, "anon", `select public.decide_draft('${bio}', 'approved')`)).rejects.toThrow(/permission denied/);
-    // a rejection carries a note; a decision is one of two words
+    // the owner of another collection, on this collection's draft — and this owner on theirs
+    await expect(asUser(USER_B, "authenticated", `select decide_draft('${otherDraft}', 'approved')`, "aal1")).rejects.toThrow(refused);
+    await expect(asUser(USER_A, "authenticated", `select decide_draft('${otherDraft}', 'approved')`)).rejects.toThrow(refused);
+    // the anonymous role is stopped by the function's own grant, not by the schema (the review of PR #14, should-fix 6)
+    await expect(asUser(null, "anon", `select public.decide_draft('${bio}', 'approved')`)).rejects.toThrow(/permission denied for function decide_draft/);
+    // a rejection carries a note — of more than whitespace; a decision is one of two words
     await expect(asUser(USER_A, "authenticated", `select decide_draft('${why}', 'rejected')`)).rejects.toThrow(/a rejection carries a note/);
     await expect(asUser(USER_A, "authenticated", `select decide_draft('${why}', 'rejected', '  ')`)).rejects.toThrow(/a rejection carries a note/);
+    await expect(asUser(USER_A, "authenticated", `select decide_draft('${why}', 'rejected', E'\\t\\n ')`)).rejects.toThrow(/a rejection carries a note/);
     await expect(asUser(USER_A, "authenticated", `select decide_draft('${why}', 'later')`)).rejects.toThrow(/'approved' or 'rejected'/);
+    // the list's own sentence is an answer, not a text: it cannot be approved (should-fix 1) — it can be sent back
+    await expect(asUser(USER_A, "authenticated", `select decide_draft('${notEnough}', 'approved')`)).rejects.toThrow(/not a text to approve/);
     // nothing so far changed anything
-    expect((await db.query("select status from drafts where id = any($1::uuid[]) and status <> 'draft'", [[bioOld, bio, why]])).rowCount).toBe(0);
+    expect((await db.query("select status from drafts where id = any($1::uuid[]) and status <> 'draft'", [[bioOld, bio, why, notEnough, otherDraft]])).rowCount).toBe(0);
     expect((await db.query<{ biography: string | null; verified_at: string | null }>("select biography, verified_at from artists where id = $1", [artist.id])).rows[0]).toEqual({ biography: null, verified_at: null });
 
     // The owner approves the biography: signed and dated on the draft and on the artist, the text copied, the link kept, the audit log carrying the owner.
@@ -762,20 +782,31 @@ describe.skipIf(!url)("M1-01 · the record arrives", () => {
       await db.query("select set_config('app.actor', '', false)");
     }
 
-    // Everyone invited reads the approved text and its sources through approved_texts — the one the artist carries now — and nothing else of a draft.
+    // Everyone invited reads the approved text and its sources through approved_texts — the one the artist carries now — and nothing else of a draft:
+    // of the shared source list, only the passage the text itself cites (should-fix 3); the owner's own table keeps both.
     const read = "select field, text, sources, decided_at is not null as dated from approved_texts where artist_id = '" + artist.id + "' order by field";
     const seen = await asUser(USER_C, "authenticated", read);
-    expect(seen).toEqual([{ field: "biography", text: "She paints the harbour.", sources: JSON.parse(sources), dated: true }]);
+    expect(seen).toEqual([{ field: "biography", text: "She paints the harbour.", sources: [JSON.parse(sources)[0]], dated: true }]);
+    expect((await asUser(USER_A, "authenticated", `select jsonb_array_length(sources)::int as n from drafts where id = '${bio}'`))[0].n).toBe(2);
     expect(await asUser(USER_D, "authenticated", read)).toEqual(seen);
     expect(await asUser(USER_A, "authenticated", read)).toEqual(seen);
     expect(await asUser(USER_B, "authenticated", read)).toEqual([]);
     expect(await asUser(USER_A, "authenticated", read, "aal1")).toEqual([]);
     expect(await asUser(USER_C, "authenticated", read, "aal1")).toEqual([]);
-    await expect(asUser(null, "anon", "select * from public.approved_texts")).rejects.toThrow(/permission denied/);
+    // the anonymous role is stopped by the view's own grant (should-fix 6)
+    await expect(asUser(null, "anon", "select * from public.approved_texts")).rejects.toThrow(/permission denied for (view|relation) approved_texts/);
+    // the other collection's owner approves their own draft and reads it alone; this collection's owner and viewer read nothing of it
+    await asUserCommit(USER_B, `select decide_draft('${otherDraft}', 'approved')`);
+    const elsewhere = `select text from approved_texts where collection_id = '${other}'`;
+    expect(await asUser(USER_B, "authenticated", elsewhere)).toEqual([{ text: "Elsewhere, a painter." }]);
+    expect(await asUser(USER_B, "authenticated", "select count(*)::int as n from approved_texts")).toEqual([{ n: 1 }]);
+    expect(await asUser(USER_A, "authenticated", elsewhere)).toEqual([]);
+    expect(await asUser(USER_C, "authenticated", elsewhere)).toEqual([]);
+    expect(await asUser(USER_B, "authenticated", "select count(*)::int as n from drafts where collection_id = '" + cid + "'")).toEqual([{ n: 0 }]);
     // the view has no column for a removal, a flag or a note, and a viewer reads no draft at all, the approved one included
     const viewColumns = (await db.query<{ column_name: string }>("select column_name from information_schema.columns where table_schema = 'public' and table_name = 'approved_texts'")).rows.map((r) => r.column_name).sort();
     expect(viewColumns).toEqual(["artist_id", "collection_id", "created_at", "decided_at", "field", "id", "sentences", "sources", "text"]);
-    for (const u of [USER_B, USER_C, USER_D]) expect(await asUser(u, "authenticated", "select count(*)::int as n from drafts"), u).toEqual([{ n: 0 }]);
+    for (const u of [USER_B, USER_C, USER_D]) expect(await asUser(u, "authenticated", `select count(*)::int as n from drafts where collection_id = '${cid}'`), u).toEqual([{ n: 0 }]);
     // the artist's own row says the same to a viewer: the biography, and nothing else of the register
     expect(await asUser(USER_C, "authenticated", `select biography, why_they_matter from artists where id = '${artist.id}'`)).toEqual([{ biography: "She paints the harbour.", why_they_matter: null }]);
     // a newer approval replaces the text on the artist and the view follows; the old approved draft keeps its status but leaves the view

@@ -1,6 +1,7 @@
 /** M2-01 · An artist's approved texts beside the work: their shape held, their sources combined and dated, the title in italics. */
 import { describe, expect, it } from "vitest";
-import { citedSources, combine, dayOf, publisherOf, readOn, segments, toApprovedText, toArtistTexts, type ApprovedText } from "@/lib/gallery/texts";
+import { NOT_ENOUGH } from "@/lib/drafting/types";
+import { citedSources, combine, commonTitle, dayOf, pageKey, publisherOf, readOn, safeLink, segments, sourceLabel, toApprovedText, toArtistTexts, type ApprovedText } from "@/lib/gallery/texts";
 
 const bioRow = {
   id: "00000000-0000-4000-8000-0000000000d1",
@@ -40,6 +41,12 @@ describe("the approved texts", () => {
     expect(toApprovedText({ ...bioRow, field: "tombstone" })).toBeNull();
     expect(toApprovedText({ ...bioRow, text: "  " })).toBeNull();
     expect(toApprovedText(null)).toBeNull();
+    // the list's own sentence is an answer, not a text: never shown beside a work (the review of PR #14)
+    expect(toApprovedText({ ...bioRow, text: NOT_ENOUGH, sentences: [{ text: NOT_ENOUGH, sources: [] }] })).toBeNull();
+    expect(toApprovedText({ ...bioRow, text: `  ${NOT_ENOUGH} ` })).toBeNull();
+    expect(safeLink("javascript:alert(1)")).toBeNull();
+    expect(safeLink("https://harbour-gallery.example/p")).toBe("https://harbour-gallery.example/p");
+    expect(safeLink(null)).toBeNull();
     const both = toArtistTexts([bioRow, whyRow, { junk: true }]);
     expect(both.biography?.id).toBe(bioRow.id);
     expect(both.whyTheyMatter?.id).toBe(whyRow.id);
@@ -57,8 +64,56 @@ describe("the approved texts", () => {
     expect(readOn(t.sources[0], t.createdAt)).toBe("read 19 Nov 2026");
     expect(readOn(t.sources[1], t.createdAt)).toBe("read 19 Nov 2026");
     expect(readOn({ readAt: undefined }, "2026-11-18T23:59:00Z")).toBe("read 18 Nov 2026");
-    expect(publisherOf({ kind: "supplied", publisher: "Test Painter" })).toBe("Test Painter, in their own words");
+  });
+
+  it("name who stands behind a source without the desk's own marker: the artist's own words, or the publisher (the review of PR #14)", () => {
+    expect(publisherOf({ kind: "supplied", publisher: "Test Painter (the artist)" })).toBe("the artist's own words");
+    expect(publisherOf({ kind: "supplied", publisher: "Test Painter (The Artist) " })).toBe("the artist's own words");
+    expect(publisherOf({ kind: "supplied", publisher: "Ann Example" })).toBe("Ann Example");
     expect(publisherOf({ kind: "web", publisher: "Tate" })).toBe("Tate");
+    expect(sourceLabel({ kind: "supplied", title: "Test Painter — in her own words", publisher: "Test Painter (the artist)" })).toBe("Test Painter — in her own words");
+    expect(sourceLabel({ kind: "supplied", title: "Notes for the register", publisher: "Test Painter (the artist)" })).toBe("Notes for the register, the artist's own words");
+    expect(sourceLabel({ kind: "supplied", title: "A catalogue note", publisher: "Ann Example" })).toBe("A catalogue note, Ann Example");
+    expect(sourceLabel({ kind: "web", title: "Test Painter", publisher: "Harbour Gallery" })).toBe("Test Painter, Harbour Gallery");
+    for (const s of [bioRow, whyRow].flatMap((r) => r.sources)) expect(sourceLabel(s as never)).not.toContain("(the artist)");
+  });
+
+  it("count a page once, however many passages were quoted from it — the Sources line is a Literature line, not a list of paragraphs (the review of PR #14)", () => {
+    const page = { kind: "web" as const, publisher: "Stevenson", link: "https://stevenson.example/halter" };
+    const t: ApprovedText = {
+      id: "t",
+      field: "biography",
+      text: "x",
+      sentences: [
+        { text: "First.", sources: [1] },
+        { text: "Second.", sources: [2, 3] },
+        { text: "Third.", sources: [3, 4] },
+      ],
+      sources: [
+        { n: 1, ...page, title: "Dan Halter", passage: "p1" },
+        { n: 2, ...page, title: "Dan Halter", passage: "p2" },
+        { n: 3, ...page, title: "Dan Halter", passage: "p3" },
+        { n: 4, kind: "supplied", title: "Dan Halter — in his own words — On the flag", publisher: "Dan Halter (the artist)", link: null, passage: "s1" },
+        { n: 5, kind: "supplied", title: "Dan Halter — in his own words", publisher: "Dan Halter (the artist)", link: null, passage: "s2" },
+        { n: 6, kind: "supplied", title: "Dan Halter — in his own words — On weaving", publisher: "Dan Halter (the artist)", link: null, passage: "s3" },
+      ],
+      decidedAt: "2026-11-19T12:00:00Z",
+      createdAt: "2026-11-19T07:31:00Z",
+    };
+    const { sources, shown } = combine([t, { ...t, id: "u", field: "why_they_matter", sentences: [{ text: "Why.", sources: [6, 2] }] }]);
+    expect(sources.map((s) => [s.n, sourceLabel(s)])).toEqual([
+      [1, "Dan Halter, Stevenson"],
+      [2, "Dan Halter — in his own words"],
+    ]);
+    expect(shown[0].sentences.map((s) => s.sources)).toEqual([[1], [1], [1, 2]]);
+    expect(shown[1].sentences.map((s) => s.sources)).toEqual([[1, 2]]);
+    // the page's name from its passages' titles
+    expect(commonTitle(["X — in his own words — On the flag", "X — in his own words", "X — in his own words — On weaving"])).toBe("X — in his own words");
+    expect(commonTitle(["X — in his own words — On the flag", "X — in his own words — On weaving"])).toBe("X — in his own words");
+    expect(commonTitle(["X — in his own words — On the flag"])).toBe("X — in his own words — On the flag");
+    expect(commonTitle(["Alpha — a", "Beta — b"])).toBe("Beta — b"); // nothing in common: the shorter
+    expect(pageKey({ kind: "web", link: null, title: "T", publisher: "P" })).toBe("web|T|P");
+    expect(pageKey({ kind: "supplied", link: null, title: "T — heading", publisher: "A (the artist)" })).toBe("supplied|A (the artist)");
   });
 
   it("combine two texts' sources into one Sources line, each source once, numbered as first cited, the sentences renumbered to match", () => {

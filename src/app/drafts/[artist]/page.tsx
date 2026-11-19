@@ -1,13 +1,14 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { pending } from "@/lib/drafting/pending";
-import type { Field, Removal } from "@/lib/drafting/types";
+import { NOT_ENOUGH, type Field, type Removal } from "@/lib/drafting/types";
 import { loadDrafts, myRole, type DraftFull } from "@/lib/drafts/load";
 import { dayOf } from "@/lib/gallery/texts";
 import { isImageId } from "@/lib/images/door";
 import { decide } from "../actions";
 import { DraftText } from "../DraftText";
 import { Quiet } from "../Quiet";
+import { sentenceFor } from "../said";
 
 /**
  * M2-01 · One artist's drafts, on the owner's phone: why they matter, then the biography — each the
@@ -16,7 +17,10 @@ import { Quiet } from "../Quiet";
  * and why. Three choices for each text: Approve; Not this, with a note; Later. Approving takes a
  * second: the database stamps the owner's name and the time, and the text is on every work by the
  * artist the next time a page is opened. A rejection's note goes back to the desk for the next
- * draft. Nothing here is free to edit: a sentence changed by hand would lose its source.
+ * draft. Nothing here is free to edit: a sentence changed by hand would lose its source. A field that
+ * is only the list's own sentence — "Not enough is known yet." — is not offered for approval: approved,
+ * it would sit under every work by the artist as a placeholder (the review of PR #14); the database
+ * refuses it too.
  */
 
 export const dynamic = "force-dynamic";
@@ -27,7 +31,8 @@ const reason = (r: Removal) => (typeof r.rule === "number" ? `rule ${r.rule}` : 
 const quiet = "font-sans text-[11px] uppercase tracking-[0.2em] text-ink-faint transition-colors hover:text-ink-muted";
 
 export default async function DraftsForArtist({ params, searchParams }: { params: Promise<{ artist: string }>; searchParams: Promise<{ said?: string }> }) {
-  const [{ artist }, { said }] = await Promise.all([params, searchParams]);
+  const [{ artist }, { said: code }] = await Promise.all([params, searchParams]);
+  const said = sentenceFor(code);
   if (!isImageId(artist)) notFound();
   const [role, read] = await Promise.all([myRole(), loadDrafts()]);
   if (role !== "owner" || !read) notFound();
@@ -91,10 +96,14 @@ export default async function DraftsForArtist({ params, searchParams }: { params
   );
 }
 
+/** The list's own answer, and nothing else: "Not enough is known yet." is not a text to approve. */
+const isPlaceholder = (d: DraftFull) => d.text.trim() === NOT_ENOUGH;
+
 function FieldBlock({ field, draft, artist, answered }: { field: Field; draft: DraftFull; artist: string; answered: DraftFull | null }) {
   const removed = draft.removed ?? [];
   const flagged = draft.flagged ?? [];
   const day = dayOf(draft.created_at);
+  const placeholder = isPlaceholder(draft);
   return (
     <section aria-labelledby={`${field}-label`} className="mt-14">
       <h2 id={`${field}-label`} className="font-sans text-[11px] uppercase tracking-[0.2em] text-ink-faint">
@@ -138,14 +147,18 @@ function FieldBlock({ field, draft, artist, answered }: { field: Field; draft: D
       )}
 
       <div className="mt-8 flex flex-wrap items-center gap-x-8 gap-y-4">
-        <form action={decide}>
-          <input type="hidden" name="draft" value={draft.id} />
-          <input type="hidden" name="artist" value={artist} />
-          <input type="hidden" name="decision" value="approved" />
-          <button type="submit" className="border border-ink-muted px-5 py-2.5 font-sans text-[11px] uppercase tracking-[0.2em] text-ink transition-colors hover:border-ink">
-            Approve
-          </button>
-        </form>
+        {placeholder ? (
+          <p className="w-full font-sans text-[13px] leading-relaxed text-ink-muted">The desk found no source it could use. Send it back with a note, or leave it for later; there is nothing here to approve.</p>
+        ) : (
+          <form action={decide}>
+            <input type="hidden" name="draft" value={draft.id} />
+            <input type="hidden" name="artist" value={artist} />
+            <input type="hidden" name="decision" value="approved" />
+            <button type="submit" className="border border-ink-muted px-5 py-2.5 font-sans text-[11px] uppercase tracking-[0.2em] text-ink transition-colors hover:border-ink">
+              Approve
+            </button>
+          </form>
+        )}
         <details className="group">
           <summary className={`cursor-pointer list-none ${quiet}`}>Not this, with a note</summary>
           <form action={decide} className="mt-4 flex flex-col gap-3">

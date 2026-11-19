@@ -145,15 +145,18 @@ const NOT_PRIVATE = /mother-of-pearl/gi;
 /**
  * Where a living artist lives or works, closer than a city and a country — Michael, 18 Nov: "city and
  * country only, never a studio, a neighbourhood or an address". In code, narrowly (the pre-flight check
- * of 19 Nov): a street address — a number, then one to four capitalised words, then Road, Street,
- * Avenue and their kin — and the studio's whereabouts — "studio is in", "her studio in", "a studio at",
- * followed by a capitalised place or a number. "The Bag Factory studios in Johannesburg" is neither.
- * The brief and the second reading carry the rest (a neighbourhood by name).
+ * of 19 Nov; the review of PR #14): a street address — a number that is not a year (1800–2099), then
+ * one to four capitalised words, then Road, Street, Avenue and their kin — and the studio's whereabouts
+ * — "studio is in", "her studio in", "a studio at", followed by a capitalised place or a number, so
+ * "the studio is in her house" is not caught. "The Bag Factory studios in Johannesburg" is neither, nor
+ * "2012 Trafalgar Square". Narrow by design: "45 main road", "a studio on Bree Street", "Her Woodstock
+ * studio", "Her studio, in Woodstock" and "12 Rue de Rivoli" pass here and are the brief's and the
+ * second reading's, which name a neighbourhood too.
  */
 export const STREET_ADDRESS =
-  /(?<![\p{L}\p{N}])\d{1,5}[A-Za-z]?(?:[-–]\d{1,5})?\s+(?:\p{Lu}[\p{L}'’.-]*\s+){1,4}(?:Road|Rd\.?|Street|St\.?|Avenue|Ave\.?|Lane|Drive|Dr\.?|Boulevard|Crescent|Close|Terrace|Place|Square|Way)(?![\p{L}])/gu;
+  /(?<![\p{L}\p{N}])(?!(?:1[89]|20)\d{2}(?![\p{N}]))\d{1,5}[A-Za-z]?(?:[-–]\d{1,5})?\s+(?:\p{Lu}[\p{L}'’.-]*\s+){1,4}(?:Road|Rd\.?|Street|St\.?|Avenue|Ave\.?|Lane|Drive|Dr\.?|Boulevard|Crescent|Close|Terrace|Place|Square|Way)(?![\p{L}])/gu;
 export const STUDIO_WHEREABOUTS =
-  /(?<![\p{L}])(?:studios?\s+(?:(?:is|was|are|were)(?:\s+(?:located|situated|based))?|lies|sits|stands|located|situated|based)\s+(?:in|at|on)|(?:his|her|their|the artist['’]s|a|the)\s+studios?\s+(?:in|at))\s+(?=[\p{Lu}\p{N}])/giu;
+  /(?<![\p{L}])(?:[Ss]tudios?\s+(?:(?:is|was|are|were)(?:\s+(?:located|situated|based))?|lies|sits|stands|located|situated|based)\s+(?:in|at|on)|(?:[Hh]is|[Hh]er|[Tt]heir|[Tt]he artist['’]s|[Aa]|[Tt]he)\s+studios?\s+(?:in|at))\s+(?=[\p{Lu}\p{N}])/gu;
 
 /** Rule 7: the first person, which is never the desk's. ("us" lower-case only: the US is a place.) */
 const VOICE = /(?<![\w'’])(?:I|I'm|I’m|I've|I’ve|my|My|mine|myself|me|Me|we|We|our|Our|ours|us)(?![\w])/g;

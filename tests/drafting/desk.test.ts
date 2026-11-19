@@ -235,10 +235,8 @@ describe("the desk", () => {
     const bio = draft.fields.find((f) => f.field === "biography")!;
     expect(calls.shorten).toHaveLength(1);
     expect(bio.sentences.map((s) => s.text)).toEqual(long.slice(0, 5).map((s) => s.text));
-    expect(bio.removed).toEqual([
-      { text: long.map((s) => s.text).join(" "), rule: "shortened", why: "shortened by the model from 300 to 300 words — this is the longer version, as it stood before" },
-      { text: long[5].text, rule: "length", why: "over 250 words" },
-    ]);
+    // the stand-in gave the same text back: no shortening, so no "shortened" entry (the review of PR #14)
+    expect(bio.removed).toEqual([{ text: long[5].text, rule: "length", why: "over 250 words" }]);
     expect(bio.flagged).toEqual([]);
     expect(draft.notes).toContain("biography: 300 words after the reading, over 250 — the model shortened it once, to 300, still over: cut from the end");
   });

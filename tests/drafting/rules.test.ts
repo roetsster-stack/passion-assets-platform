@@ -468,6 +468,19 @@ describe("the pre-flight check of 19 Nov — where a living artist lives or work
     }
     expect(check("He works at 12 Example Road, Bonteheuwel.").find((x) => x.rule === 8)?.match).toBe("12 Example Road");
     expect(check("His studio is in Bonteheuwel.").find((x) => x.rule === 8)?.match).toBe("studio is in");
+    // a capitalised place is what the code asks for (the review of PR #14)
+    expect(check("Their studios in Berlin and Cape Town are shared.").map((x) => x.rule)).toContain(8);
+    expect(check("Studio is at 4 Harbour Street.").map((x) => x.rule)).toContain(8);
+  });
+
+  it("does not read a year as a house number, nor a lower-case word as a place — narrow by design (the review of PR #14)", () => {
+    for (const t of ["In 2012 Trafalgar Square hosted his sculpture.", "Her 2019 Times Square billboard drew crowds.", "The studio is in her house.", "By 1994 Church Square had changed."]) {
+      expect(check(t).map((x) => x.rule), t).not.toContain(8);
+    }
+    // what the code does not reach is the brief's and the second reading's
+    for (const t of ["He works at 45 main road.", "She keeps a studio on Bree Street.", "Her Woodstock studio is small.", "Her studio, in Woodstock, is small.", "He lived at 12 Rue de Rivoli."]) {
+      expect(check(t).map((x) => x.rule), t).not.toContain(8);
+    }
   });
 
   it("leaves a city and a country, a studio complex by name, a studio with no whereabouts, and a title alone", () => {

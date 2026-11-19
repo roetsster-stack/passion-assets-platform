@@ -1,11 +1,11 @@
 import type { Source } from "@/lib/drafting/types";
-import { combine, publisherOf, readOn, segments, type ApprovedText, type Shown } from "@/lib/gallery/texts";
+import { combine, readOn, segments, sourceLabel, type ApprovedText, type Shown } from "@/lib/gallery/texts";
 
 /**
  * M2-01 · Beside the work: beneath the tombstone, quieter, the artist's "why they matter"; and
  * "About the artist", which opens the biography — who and where, how they work, what they return
  * to, where they sit — with the artist's own words standing in it as quotations, and under it a
- * short Sources line in the manner of a catalogue's *Literature*: each source named, linked, and
+ * short Sources line in the manner of a catalogue's *Literature*: each page named once, linked, and
  * dated with the day the desk read it. Approved texts only, read through the viewer's own session.
  * An artist with no approved text renders nothing: no gap, no placeholder.
  */
@@ -76,12 +76,11 @@ function Sources({ sources }: { sources: Source[] }) {
           <span className="text-ink-muted">{s.n}</span>{" "}
           {s.link ? (
             <a href={s.link} target="_blank" rel="noopener noreferrer" className="underline decoration-ink-faint underline-offset-4 transition-colors hover:text-ink-muted">
-              {s.title}
+              {sourceLabel(s)}
             </a>
           ) : (
-            s.title
+            sourceLabel(s)
           )}
-          , {publisherOf(s)}
           {s.readAt && readOn(s, s.readAt) ? ` (${readOn(s, s.readAt)})` : ""}
         </span>
       ))}

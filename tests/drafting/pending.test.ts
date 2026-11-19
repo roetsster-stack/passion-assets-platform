@@ -1,6 +1,6 @@
 /** M2-01 · Of an artist's drafts in a field, the newest counts: what waits is shown; a rejection's note is answered; an approval is the text. */
 import { describe, expect, it } from "vitest";
-import { answersFor, latestPerField, pending, pendingCount, type DraftRow } from "@/lib/drafting/pending";
+import { answersFor, latestPerField, pending, pendingCount, wantsDraft, type DraftRow } from "@/lib/drafting/pending";
 
 const A = "00000000-0000-4000-8000-0000000000a1";
 const B = "00000000-0000-4000-8000-0000000000b2";
@@ -40,6 +40,18 @@ describe("the newest draft of a field counts", () => {
     expect(pendingCount(rows)).toBe(2);
     // once decided, nothing waits
     expect(pending(rows.map((r) => ({ ...r, status: "approved" as const, decided_at: "2026-11-20T00:00:00Z" })), [])).toEqual([]);
+  });
+
+  it("for --all: an artist is drafted unless the newest draft of each field is approved", () => {
+    const latest = latestPerField(rows);
+    expect(wantsDraft(latest.get(A))).toBe(true); // a biography waits, a why they matter sent back
+    expect(wantsDraft(latest.get(B))).toBe(true); // both approved once, but a newer biography waits
+    expect(wantsDraft(undefined)).toBe(true); // no draft yet
+    const approved = latestPerField(rows.filter((r) => r.id === "b-bio-1" || r.id === "b-why-1"));
+    expect(wantsDraft(approved.get(B))).toBe(false);
+    // the review's case: why they matter approved, the biography sent back with a note — drafted again
+    const sentBack = latestPerField([rows[4], { ...rows[5], status: "rejected", decided_at: "2026-11-20T00:00:00Z", note: "say more about the prints" }]);
+    expect(wantsDraft(sentBack.get(B))).toBe(true);
   });
 
   it("for the desk: the note on the newest decided draft of a field, where it was rejected with one", () => {

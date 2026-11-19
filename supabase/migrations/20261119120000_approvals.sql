@@ -49,6 +49,11 @@ begin
   end if;
 
   if p_decision = 'approved' then
+    -- the list's own sentence (rule 10) is an answer, not a text: approved, it would sit under every work by the
+    -- artist as a placeholder (the review of PR #14, should-fix 1)
+    if btrim(d.text, E' \t\r\n') = 'Not enough is known yet.' then
+      raise exception 'the list''s own sentence is not a text to approve: send it back with a note, or leave it for later' using errcode = 'P0001';
+    end if;
     update public.drafts set status = 'approved', decided_by = who, decided_at = now() where id = d.id returning * into d;
     if d.field = 'biography' then
       update public.artists set biography = d.text, biography_draft_id = d.id, verified_at = d.decided_at, verified_by = who where id = d.artist_id;
@@ -56,10 +61,10 @@ begin
       update public.artists set why_they_matter = d.text, why_they_matter_draft_id = d.id, verified_at = d.decided_at, verified_by = who where id = d.artist_id;
     end if;
   elsif p_decision = 'rejected' then
-    if p_note is null or btrim(p_note) = '' then
+    if p_note is null or p_note ~ '^\s*$' then
       raise exception 'a rejection carries a note: say what to change' using errcode = 'P0001';
     end if;
-    update public.drafts set status = 'rejected', decided_by = who, decided_at = now(), note = btrim(p_note) where id = d.id returning * into d;
+    update public.drafts set status = 'rejected', decided_by = who, decided_at = now(), note = btrim(p_note, E' \t\r\n') where id = d.id returning * into d;
   else
     raise exception 'a decision is ''approved'' or ''rejected''' using errcode = 'P0001';
   end if;
@@ -75,11 +80,19 @@ grant execute on function public.decide_draft(uuid, text, text) to authenticated
 -- What every member reads of a draft: an approved text and its sources — and only the text the artist
 -- carries now, never a draft that still waits, a rejected one, or one since replaced. Owner's rights
 -- (security_invoker off) so it can read drafts, which the viewer cannot; the membership check is in the
--- view itself, with both factors, and security_barrier keeps it ahead of any other filter.
+-- view itself, with both factors, and security_barrier keeps it ahead of any other filter. Supabase's
+-- Security Advisor flags such a view ("Security Definer View"); that is this view, on purpose.
+-- Of the draft's sources — the desk stores one shared list on both fields' drafts — only those the
+-- text's own sentences cite are returned: a passage the other field's draft cites, which may still be
+-- waiting or have been sent back, is nothing a member reads (the review of PR #14, should-fix 3).
 create view public.approved_texts
   with (security_invoker = false, security_barrier = true)
 as
-  select d.id, d.collection_id, d.artist_id, d.field, d.text, d.sentences, d.sources, d.decided_at, d.created_at
+  select d.id, d.collection_id, d.artist_id, d.field, d.text, d.sentences,
+         (select coalesce(jsonb_agg(s order by (s ->> 'n')::int), '[]'::jsonb)
+            from jsonb_array_elements(d.sources) s
+           where (s ->> 'n')::int in (select c::int from jsonb_array_elements(d.sentences) sen, jsonb_array_elements_text(sen -> 'sources') c)) as sources,
+         d.decided_at, d.created_at
     from public.drafts d
     join public.artists a on a.id = d.artist_id
    where d.status = 'approved'

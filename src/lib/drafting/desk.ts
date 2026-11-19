@@ -145,8 +145,11 @@ export async function draftArtist(artist: ArtistInput, deps: DeskDeps, prior: Pr
         kept = again.kept;
         flagged = again.flagged;
         const after = wordCount(joined(kept));
-        // the longer version is kept whole, as one entry, so that what the shortening dropped can be seen (19 Nov)
-        removed.push({ text: longer, rule: "shortened", why: `shortened by the model from ${before} to ${after} words — this is the longer version, as it stood before` });
+        // the longer version is kept whole, as one entry, so that what the shortening dropped can be seen (19 Nov) —
+        // only where the model changed anything; the same text back is no shortening (the review of PR #14)
+        if (joined(shorter.sentences) !== longer) {
+          removed.push({ text: longer, rule: "shortened", why: `shortened by the model from ${before} to ${after} words — this is the longer version, as it stood before` });
+        }
         removed.push(...again.removed);
         notes.push(`biography: ${before} words after the reading, over ${limit} — the model shortened it once, to ${after}${after > limit ? `, still over: cut from the end` : ""}`);
       } catch (err) {

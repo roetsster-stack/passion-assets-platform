@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import type { Sentence, Source } from "@/lib/drafting/types";
-import { publisherOf, readOn, segments } from "@/lib/gallery/texts";
+import { readOn, safeLink, segments, sourceLabel } from "@/lib/gallery/texts";
 
 /**
  * M2-01 · A draft's text on the owner's phone: each sentence with its small numbers; a tap on them
@@ -39,14 +39,13 @@ export function DraftText({ sentences, sources, createdAt }: { sentences: Senten
             <li key={s.n}>
               <p className="text-ink">
                 <span className="mr-2 text-ink-faint">{s.n}</span>
-                {s.link ? (
-                  <a href={s.link} target="_blank" rel="noopener noreferrer" className="underline decoration-ink-faint underline-offset-4 hover:decoration-ink">
-                    {s.title}
+                {safeLink(s.link) ? (
+                  <a href={safeLink(s.link)!} target="_blank" rel="noopener noreferrer" className="underline decoration-ink-faint underline-offset-4 hover:decoration-ink">
+                    {sourceLabel(s)}
                   </a>
                 ) : (
-                  s.title
+                  sourceLabel(s)
                 )}
-                <span className="text-ink-muted"> — {publisherOf(s)}</span>
                 {readOn(s, createdAt) && <span className="text-ink-faint">, {readOn(s, createdAt)}</span>}
               </p>
               <blockquote className="mt-1 font-serif text-[15px] italic text-ink-muted">“{s.passage}”</blockquote>

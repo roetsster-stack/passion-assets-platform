@@ -55,6 +55,15 @@ export function pending<T extends DraftRow>(rows: T[], artistOrder: string[]): P
   return out.sort((a, b) => (rank.get(a.artistId) ?? Infinity) - (rank.get(b.artistId) ?? Infinity) || a.artistId.localeCompare(b.artistId));
 }
 
+/**
+ * For `--all`: an artist is drafted unless the newest draft of each field is approved — so a biography
+ * sent back with a note is drafted again though the other field stands approved, and an artist with no
+ * draft yet is drafted (the review of PR #14, should-fix 4). An artist with both texts approved is left.
+ */
+export function wantsDraft(latest: Partial<Record<Field, Pick<DraftRow, "status">>> | undefined): boolean {
+  return (["biography", "why_they_matter"] as Field[]).some((f) => latest?.[f]?.status !== "approved");
+}
+
 /** How many artists have a draft that waits — the "n" of the wall's quiet "Drafts · n". */
 export const pendingCount = <T extends DraftRow>(rows: T[]): number => pending(rows, []).length;
 
