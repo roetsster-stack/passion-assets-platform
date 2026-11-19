@@ -23,6 +23,7 @@ export const WORK_COLUMNS = [
   "acquired_on",
   "acquired_from",
   "status",
+  "artist_id",
   "artists(display_name)",
 ].join(", ");
 
@@ -40,6 +41,7 @@ export type WorkRow = {
   acquired_on: string | null;
   acquired_from: string | null;
   status: string;
+  artist_id: string | null;
   artists: { display_name: string } | { display_name: string }[] | null;
 };
 
@@ -81,6 +83,7 @@ export function toWork(r: WorkRow, picture: PictureRow | null = null): Work {
   const artist = Array.isArray(r.artists) ? r.artists[0] : r.artists;
   return {
     id: r.id,
+    artistId: r.artist_id ?? null,
     artist: artist?.display_name ?? null,
     title: r.title,
     year: r.year,

@@ -27,6 +27,9 @@ export function renderDraft(d: Draft): string {
   out.push("");
   out.push(`_DRAFT — not approved. List ${d.listVersion.slice(0, 12)} · model ${d.model} · ${d.usage.requests} requests, ${d.usage.webSearches} searches, ${d.usage.inputTokens.toLocaleString("en-GB")} in / ${d.usage.outputTokens.toLocaleString("en-GB")} out._`);
   if (d.notes.length) out.push(`_${d.notes.join("; ")}._`);
+  for (const [field, a] of Object.entries(d.answers ?? {})) {
+    if (a) out.push(`_Written to answer the owner's note on the previous ${label[field as Field].toLowerCase()}: “${a.note}”._`);
+  }
   out.push("");
   for (const f of d.fields) {
     out.push(`**${label[f.field]}.** ${f.sentences.length ? f.sentences.map((s) => s.text + marks(s.sources)).join(" ") : "_(nothing survived the checks)_"}`);

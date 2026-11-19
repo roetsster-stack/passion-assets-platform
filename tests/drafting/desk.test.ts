@@ -210,7 +210,13 @@ describe("the desk", () => {
     expect(readings).toHaveLength(2);
     expect(readings[1].sentences.map((s) => s.text)).toEqual(["Born in Durban in 1980, Test Painter studied at the Michaelis School of Fine Art.", "She lives in Cape Town.", "She paints the harbour."]);
     expect(bio.sentences.map((s) => s.text)).toEqual(["Born in Durban in 1980, Test Painter studied at the Michaelis School of Fine Art.", "She paints the harbour."]);
+    // the longer version is kept whole, as one "shortened" entry, ahead of what the re-check removed (19 Nov)
     expect(bio.removed).toEqual([
+      {
+        text: long.map((s) => s.text).join(" "),
+        rule: "shortened",
+        why: `shortened by the model from ${wordsIn(long.map((s) => s.text))} to ${wordsIn(bio.sentences.map((s) => s.text))} words — this is the longer version, as it stood before`,
+      },
       { text: "Her work is a sound investment.", rule: 2, why: "rule 2: a word of the market (“investment”)" },
       { text: "She lives in Cape Town.", rule: "reading", why: "the second reading (rule 4): not in the passage" },
     ]);
@@ -229,7 +235,10 @@ describe("the desk", () => {
     const bio = draft.fields.find((f) => f.field === "biography")!;
     expect(calls.shorten).toHaveLength(1);
     expect(bio.sentences.map((s) => s.text)).toEqual(long.slice(0, 5).map((s) => s.text));
-    expect(bio.removed).toEqual([{ text: long[5].text, rule: "length", why: "over 250 words" }]);
+    expect(bio.removed).toEqual([
+      { text: long.map((s) => s.text).join(" "), rule: "shortened", why: "shortened by the model from 300 to 300 words — this is the longer version, as it stood before" },
+      { text: long[5].text, rule: "length", why: "over 250 words" },
+    ]);
     expect(bio.flagged).toEqual([]);
     expect(draft.notes).toContain("biography: 300 words after the reading, over 250 — the model shortened it once, to 300, still over: cut from the end");
   });
@@ -240,6 +249,34 @@ describe("the desk", () => {
     const bio = draft.fields.find((f) => f.field === "biography")!;
     expect(bio.sentences).toHaveLength(5);
     expect(draft.notes).toContain("biography: 300 words after the reading, over 250 — the model could not shorten it (the model declined to shorten the draft); cut from the end instead");
+    // nothing was shortened, so no "shortened" entry
+    expect(bio.removed.map((r) => r.rule)).toEqual(["length"]);
+  });
+
+  it("every source carries the date the desk read it (M2-01: shown to every reader as “read 19 Nov 2026”)", async () => {
+    const { model } = standIn({ found, answer: { biography: [{ text: "Born in Durban in 1980, Test Painter studied at the Michaelis School of Fine Art.", sources: [1, 3] }], whyTheyMatter: [] } });
+    const now = () => new Date("2026-11-19T07:30:00Z");
+    const draft = await draftArtist(painter, { model, list, sites, supplied }, { now });
+    expect(draft.sources.length).toBeGreaterThan(0);
+    for (const s of draft.sources) expect(s.readAt).toBe("2026-11-19T07:30:00.000Z");
+    // and with nothing to write from, the (empty) list of sources is still the desk's
+    const { model: dry } = standIn({ found: [] });
+    const nothing = await draftArtist({ ...painter, surname: "Nobody", givenName: "No", displayName: "No Nobody" }, { model: dry, list, sites, supplied }, { now });
+    expect(nothing.sources).toEqual([]);
+  });
+
+  it("the owner's note on a rejected draft goes to the model, by field, and is recorded on the draft that answers it (M2-01)", async () => {
+    const { model, calls } = standIn({ found, answer: { biography: [{ text: "She paints the harbour.", sources: [3] }], whyTheyMatter: [{ text: NOT_ENOUGH, sources: [] }] } });
+    const answers = { biography: { draftId: "00000000-0000-4000-8000-0000000000d1", note: "too much about the films; say more about the prints" } };
+    const draft = await draftArtist(painter, { model, list, sites, supplied }, { answers });
+    expect(calls.draft).toHaveLength(1);
+    expect(calls.draft[0].notes).toEqual({ biography: "too much about the films; say more about the prints" });
+    expect(draft.answers).toEqual(answers);
+    // no note, nothing sent and nothing recorded
+    const { model: plain, calls: plainCalls } = standIn({ found, answer: { biography: [], whyTheyMatter: [] } });
+    const bare = await draftArtist(painter, { model: plain, list, sites, supplied });
+    expect(plainCalls.draft[0].notes).toBeUndefined();
+    expect(bare.answers).toBeUndefined();
   });
 
   it("drops a sentence on no source or on a source that does not exist, before any rule", () => {

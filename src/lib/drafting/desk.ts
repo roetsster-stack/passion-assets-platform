@@ -6,14 +6,17 @@
  * Nov); then the lengths, last, so that a sentence the reading removes makes room for one that
  * fits (M2-04b) — and a sentence the cut removes is no longer "flagged (kept)". A field left empty
  * says so in the list's own words, never a blank. What leaves is listed beside what stays. Every
- * draft carries the list's version and the model's name.
+ * draft carries the list's version and the model's name. Every source carries the date the desk
+ * read it (M2-01); the biography as it stood before the model shortened it is kept beside the draft
+ * as one "shortened" entry; and the owner's note on a rejected draft goes to the model and is
+ * recorded on the draft that answers it (M2-01, 19 Nov).
  */
 import type { Site } from "./allowlist";
 import { isLiving } from "./input";
 import type { ProhibitionList } from "./list";
 import { DeskError, type Model } from "./model";
 import { checkRules, LIMITS, trimToLength, wordCount } from "./rules";
-import { addUsage, NO_USAGE, NOT_ENOUGH, type ArtistInput, type Draft, type Field, type FieldDraft, type Flag, type Removal, type Sentence, type Source } from "./types";
+import { addUsage, type Answer, NO_USAGE, NOT_ENOUGH, type ArtistInput, type Draft, type Field, type FieldDraft, type Flag, type Removal, type Sentence, type Source } from "./types";
 
 export type DeskDeps = {
   model: Model;
@@ -26,6 +29,9 @@ export type DeskDeps = {
 };
 
 export const number = (sources: Omit<Source, "n">[]): Source[] => sources.map((s, i) => ({ ...s, n: i + 1 }));
+
+/** What the desk is told about the drafts before this one: by field, the owner's note on the rejected draft to answer (M2-01). */
+export type Prior = { answers?: Partial<Record<Field, Answer>>; /** The clock, for the read dates — tests set it. */ now?: () => Date };
 
 /** Sentences whose every cited source exists; the others, with why. "Not enough is known yet." needs none. */
 export function dropUncited(sentences: Sentence[], sources: Source[]): { kept: Sentence[]; removed: Removal[] } {
@@ -48,9 +54,10 @@ export function dropUncited(sentences: Sentence[], sources: Source[]): { kept: S
 const label = (field: Field) => (field === "biography" ? "biography" : "why they matter");
 const joined = (sentences: Sentence[]) => sentences.map((s) => s.text).join(" ");
 
-export async function draftArtist(artist: ArtistInput, deps: DeskDeps): Promise<Draft> {
+export async function draftArtist(artist: ArtistInput, deps: DeskDeps, prior: Prior = {}): Promise<Draft> {
   const notes: string[] = [];
   let usage = NO_USAGE;
+  const answers = prior.answers && Object.keys(prior.answers).length ? prior.answers : undefined;
 
   const supplied = deps.supplied(artist);
   if (supplied.length === 0) notes.push("no supplied text");
@@ -62,7 +69,9 @@ export async function draftArtist(artist: ArtistInput, deps: DeskDeps): Promise<
     web = found.sources;
     if (web.length === 0) notes.push("the search found nothing on the allowed sites");
   }
-  const sources = number([...supplied, ...web]);
+  // Every source carries the date the desk read it — shown to every reader of an approved text (M2-01).
+  const readAt = (prior.now ?? (() => new Date()))().toISOString();
+  const sources = number([...supplied, ...web]).map((s) => ({ ...s, readAt }));
 
   let model = deps.model.name;
   const fields: FieldDraft[] = [];
@@ -74,10 +83,15 @@ export async function draftArtist(artist: ArtistInput, deps: DeskDeps): Promise<
     for (const field of ["biography", "why_they_matter"] as Field[]) {
       fields.push({ field, sentences: [{ text: NOT_ENOUGH, sources: [] }], text: NOT_ENOUGH, removed: [], flagged: [] });
     }
-    return { artist, listVersion: deps.list.version, model, sources, fields, usage, notes };
+    return { artist, listVersion: deps.list.version, model, sources, fields, usage, notes, answers };
   }
 
-  const drafted = await deps.model.draft({ artist, sources, list: deps.list });
+  const drafted = await deps.model.draft({
+    artist,
+    sources,
+    list: deps.list,
+    ...(answers ? { notes: Object.fromEntries(Object.entries(answers).map(([field, a]) => [field, a.note])) } : {}),
+  });
   usage = addUsage(usage, drafted.usage);
   model = drafted.model || model;
 
@@ -124,13 +138,16 @@ export async function draftArtist(artist: ArtistInput, deps: DeskDeps): Promise<
     if (field === "biography" && wordCount(joined(kept)) > limit) {
       const before = wordCount(joined(kept));
       try {
+        const longer = joined(kept);
         const shorter = await deps.model.shorten({ artist, sources, list: deps.list, field, sentences: kept, limit });
         usage = addUsage(usage, shorter.usage);
         const again = await review(field, shorter.sentences);
-        removed.push(...again.removed);
         kept = again.kept;
         flagged = again.flagged;
         const after = wordCount(joined(kept));
+        // the longer version is kept whole, as one entry, so that what the shortening dropped can be seen (19 Nov)
+        removed.push({ text: longer, rule: "shortened", why: `shortened by the model from ${before} to ${after} words — this is the longer version, as it stood before` });
+        removed.push(...again.removed);
         notes.push(`biography: ${before} words after the reading, over ${limit} — the model shortened it once, to ${after}${after > limit ? `, still over: cut from the end` : ""}`);
       } catch (err) {
         if (!(err instanceof DeskError)) throw err;
@@ -154,5 +171,5 @@ export async function draftArtist(artist: ArtistInput, deps: DeskDeps): Promise<
   }
 
   const cited = new Set(fields.flatMap((f) => f.sentences.flatMap((s) => s.sources)));
-  return { artist, listVersion: deps.list.version, model, sources: sources.filter((s) => cited.has(s.n)), fields, usage, notes };
+  return { artist, listVersion: deps.list.version, model, sources: sources.filter((s) => cited.has(s.n)), fields, usage, notes, answers };
 }

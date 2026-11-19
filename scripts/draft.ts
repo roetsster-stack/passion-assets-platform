@@ -3,6 +3,7 @@
  *
  *   npm run draft -- --artist "Halter" --artist "Kentridge"   drafts for the artists named (surname or name, any case)
  *   npm run draft -- --artists 5                               the first five artists, in the register's order
+ *   npm run draft -- --all                                     every artist without an approved text (M2-01)
  *   npm run draft -- --artist "Halter" --report ~/Desktop/Drafts.md   where the readable report lands
  *   npm run draft -- --artist "Halter" --no-db                 the report only; nothing written to the table
  *
@@ -10,6 +11,8 @@
  * sources a person can check — Michael's supplied texts first, then the model's search of the
  * allowlisted sites — checked by rule and read a second time against the prohibition list. The
  * desk refuses to run without the list. Drafts go to the `drafts` table (owner-only) and to a report.
+ * Where the owner rejected the previous draft of a field with a note, the next draft is written to
+ * answer it, and records which draft it answers (M2-01).
  *
  * Needs, in ~/curator/.env: ANTHROPIC_API_KEY, DATABASE_URL (and DATABASE_SSL_CA), CURATOR_CONTEXT_DIR
  * (the project folder's context/, where artists/<Surname>_<Given>.md live). Optional:
@@ -23,6 +26,7 @@ import { sslFor } from "../src/lib/db";
 import { loadAllowlist, resolving } from "../src/lib/drafting/allowlist";
 import { anthropicModel } from "../src/lib/drafting/anthropic";
 import { draftArtist } from "../src/lib/drafting/desk";
+import { answersFor, type DraftRow } from "../src/lib/drafting/pending";
 import { ARTIST_COLUMNS, toArtistInput, WORK_COLUMNS, type ArtistRow, type WorkRow } from "../src/lib/drafting/input";
 import { loadList } from "../src/lib/drafting/list";
 import { renderReport, type RunMeta } from "../src/lib/drafting/report";
@@ -43,8 +47,9 @@ const ALLOWLIST_PATH = path.join(repo, "docs", "drafting", "sources-allowlist.md
 async function main() {
   const names = values("--artist");
   const count = Number(values("--artists")[0] ?? 0);
-  if (names.length === 0 && !(count > 0)) {
-    console.error('Usage: npm run draft -- --artist "Halter" [--artist "Kentridge"] | --artists 5   [--report <file>] [--no-db]');
+  const every = flag("--all");
+  if (names.length === 0 && !(count > 0) && !every) {
+    console.error('Usage: npm run draft -- --artist "Halter" [--artist "Kentridge"] | --artists 5 | --all   [--report <file>] [--no-db]');
     process.exit(2);
   }
   const envFile = loadEnvFile();
@@ -76,8 +81,14 @@ async function main() {
     const ownerName = collectionName.replace(/\s+collection$/i, "").trim();
     const neverName = ownerName && ownerName !== collectionName ? [ownerName, ownerName.split(/\s+/).slice(-1)[0]] : [];
 
-    // The minimal input: these columns and no others (rule 5).
-    const all = (await db.query<ArtistRow>(`select ${ARTIST_COLUMNS.join(", ")} from artists where collection_id = $1 order by surname, given_name`, [cid])).rows;
+    // The minimal input: these columns and no others (rule 5). Whether a text is approved rides along
+    // for --all only and never reaches the model: toArtistInput picks its fields by name.
+    const all = (
+      await db.query<ArtistRow & { approved: boolean }>(
+        `select ${ARTIST_COLUMNS.join(", ")}, verified_at is not null as approved from artists where collection_id = $1 order by surname, given_name`,
+        [cid],
+      )
+    ).rows;
     const chosen = names.length
       ? names.map((name) => {
           const key = fold(name);
@@ -86,7 +97,10 @@ async function main() {
           if (matches.length > 1) throw new Error(`"${name}" matches ${matches.map((a) => a.display_name).join(", ")} — say which.`);
           return matches[0];
         })
-      : all.slice(0, count);
+      : every
+        ? all.filter((a) => !a.approved)
+        : all.slice(0, count);
+    if (every) console.log(`--all: ${chosen.length} of ${all.length} artist(s) have no approved text`);
     const works = (
       await db.query<WorkRow>(`select ${WORK_COLUMNS.join(", ")} from items where collection_id = $1 and source_removed_at is null and artist_id = any($2::uuid[]) order by year nulls last, title`, [
         cid,
@@ -101,16 +115,20 @@ async function main() {
       );
       console.log(`\n${artist.displayName} — ${artist.works.length} work(s) here`);
       try {
-        const draft = await draftArtist(artist, { model, list, sites, supplied: (a) => suppliedSources(contextDir, a), neverName });
+        // the owner's note on a rejected previous draft, by field: the next draft answers it (M2-01)
+        const earlier = (await db.query<DraftRow>("select id, artist_id, field, status, created_at, decided_at, note from drafts where artist_id = $1 and subject = 'artist'", [artist.id])).rows;
+        const answers = answersFor(earlier);
+        for (const [field, a] of Object.entries(answers)) if (a) console.log(`  answering the note on the previous ${field === "biography" ? "biography" : "why they matter"}: “${a.note}”`);
+        const draft = await draftArtist(artist, { model, list, sites, supplied: (a) => suppliedSources(contextDir, a), neverName }, { answers });
         drafts.push(draft);
         for (const f of draft.fields) console.log(`  ${f.field}: ${f.sentences.length} sentence(s) kept, ${f.removed.length} removed, ${f.flagged.length} flagged`);
         if (table === "written") {
           try {
             for (const f of draft.fields) {
               await db.query(
-                `insert into drafts (collection_id, subject, artist_id, field, text, sentences, sources, removed, flagged, list_version, model)
-                 values ($1, 'artist', $2, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb, $8::jsonb, $9, $10)`,
-                [cid, artist.id, f.field, f.text, JSON.stringify(f.sentences), JSON.stringify(draft.sources), JSON.stringify(f.removed), JSON.stringify(f.flagged), draft.listVersion, draft.model],
+                `insert into drafts (collection_id, subject, artist_id, field, text, sentences, sources, removed, flagged, list_version, model, answers)
+                 values ($1, 'artist', $2, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb, $8::jsonb, $9, $10, $11)`,
+                [cid, artist.id, f.field, f.text, JSON.stringify(f.sentences), JSON.stringify(draft.sources), JSON.stringify(f.removed), JSON.stringify(f.flagged), draft.listVersion, draft.model, draft.answers?.[f.field]?.draftId ?? null],
               );
             }
           } catch (err) {

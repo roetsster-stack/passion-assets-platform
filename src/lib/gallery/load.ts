@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { PICTURE_COLUMNS, toWork, WORK_COLUMNS, type PictureRow, type WorkRow } from "./read";
+import { APPROVED_COLUMNS, NO_TEXTS, toArtistTexts, type ArtistTexts } from "./texts";
 import type { Work } from "./types";
 
 /**
@@ -21,6 +22,19 @@ export async function loadWorks(): Promise<Work[]> {
     return (works.data as unknown as WorkRow[]).map((w) => toWork(w, byItem.get(w.id) ?? null));
   } catch {
     return [];
+  }
+}
+
+/** The approved texts of one artist (M2-01), as the signed-in person: the `approved_texts` view returns what they may read, and nothing else of a draft. */
+export async function loadArtistTexts(artistId: string | null): Promise<ArtistTexts> {
+  if (!artistId) return NO_TEXTS;
+  try {
+    const supabase = await createClient();
+    const { data, error } = await supabase.from("approved_texts").select(APPROVED_COLUMNS).eq("artist_id", artistId);
+    if (error || !data) return NO_TEXTS;
+    return toArtistTexts(data as unknown[]);
+  } catch {
+    return NO_TEXTS;
   }
 }
 

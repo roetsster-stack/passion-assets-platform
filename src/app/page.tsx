@@ -7,6 +7,7 @@ import { isSaveData } from "@/lib/gallery/picture";
 import { tombstoneLine } from "@/lib/gallery/tombstone";
 import type { Work } from "@/lib/gallery/types";
 import { Cell } from "./_gallery/Cell";
+import { DraftsLink } from "./_gallery/DraftsLink";
 import { IntentCaption } from "./_gallery/IntentCaption";
 import { Plate } from "./_gallery/Plate";
 
@@ -46,8 +47,9 @@ export default async function Wall() {
           <Grid works={sold} saveData={saveData} />
         </section>
       )}
-      <footer className="flex justify-end px-6 pb-6 pt-24">
-        {/* Sign out: at the end of the wall, on intent, and nowhere else. A form, so a link cannot do it. */}
+      <footer className="flex items-center justify-end gap-8 px-6 pb-6 pt-24">
+        {/* Drafts · n: for the owner only, when a draft waits (M2-01). Sign out: at the end of the wall, on intent, and nowhere else. A form, so a link cannot do it. */}
+        <DraftsLink />
         <SignOut />
       </footer>
     </main>
@@ -101,7 +103,8 @@ function EmptyWall() {
         <h1 className="text-balance text-3xl font-normal leading-tight tracking-tight text-ink sm:text-4xl">Nothing hangs here yet.</h1>
         <p className="mt-5 max-w-md text-pretty text-base leading-relaxed text-ink-muted">The wall is prepared. The works arrive with the first ingest.</p>
       </div>
-      <div className="fixed bottom-5 right-6">
+      <div className="fixed bottom-5 right-6 flex items-center gap-8">
+        <DraftsLink />
         <SignOut />
       </div>
     </main>
