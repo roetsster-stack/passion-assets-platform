@@ -16,6 +16,9 @@ export type DraftAnswer = { biography: Sentence[]; whyTheyMatter: Sentence[] };
 export type ReadingRequest = { artist: ArtistInput; list: ProhibitionList; field: Field; sentences: Sentence[]; sources: Source[] };
 export type Verdict = { index: number; verdict: "keep" | "remove" | "flag"; rule: number | null; why: string };
 
+/** A field that runs past its limit, to be shortened to `limit` words keeping its four moves (18 Nov). */
+export type ShortenRequest = { artist: ArtistInput; sources: Source[]; list: ProhibitionList; field: Field; sentences: Sentence[]; limit: number };
+
 export interface Model {
   /** The name recorded on every draft when the model answers nothing more exact. */
   readonly name: string;
@@ -25,6 +28,8 @@ export interface Model {
   draft(req: DraftRequest): Promise<{ answer: DraftAnswer; model: string; usage: Usage }>;
   /** The second reading against the list: a verdict on every sentence. */
   read(req: ReadingRequest): Promise<{ verdicts: Verdict[]; usage: Usage }>;
+  /** The same sentences shortened to the limit, the four moves kept — asked once, when a biography runs long; the desk checks and reads the answer again. */
+  shorten(req: ShortenRequest): Promise<{ sentences: Sentence[]; usage: Usage }>;
 }
 
 /** The desk's own failure: the model declined, or answered in a shape the desk cannot read. */
@@ -50,13 +55,21 @@ export function asDraftAnswer(x: unknown): DraftAnswer {
   return { biography: asSentences(o.biography, "biography"), whyTheyMatter: asSentences(o.why_they_matter ?? o.whyTheyMatter, "why they matter") };
 }
 
+/** The shortened field from untrusted JSON: `{ sentences: [...] }`. */
+export function asShortened(x: unknown): Sentence[] {
+  if (!x || typeof x !== "object") throw new DeskError("the shortening is not an object");
+  return asSentences((x as Record<string, unknown>).sentences, "the shortening");
+}
+
 export function asVerdicts(x: unknown): Verdict[] {
   const list = x && typeof x === "object" && Array.isArray((x as { verdicts?: unknown }).verdicts) ? (x as { verdicts: unknown[] }).verdicts : x;
   if (!Array.isArray(list)) throw new DeskError("the second reading is not a list of verdicts");
   return list.map((v, i) => {
     const o = (v ?? {}) as Record<string, unknown>;
-    const verdict = o.verdict === "remove" || o.verdict === "flag" ? o.verdict : "keep";
+    // a verdict the desk does not recognise is a doubt, never a pass (M2-04b)
+    const verdict = o.verdict === "keep" || o.verdict === "remove" || o.verdict === "flag" ? o.verdict : "flag";
     if (!isInt(o.index)) throw new DeskError(`verdict ${i + 1} names no sentence`);
-    return { index: o.index, verdict, rule: isInt(o.rule) ? o.rule : null, why: typeof o.why === "string" ? o.why : "" };
+    const why = typeof o.why === "string" && o.why ? o.why : verdict === "flag" && o.verdict !== "flag" ? "the second reading gave no verdict" : "";
+    return { index: o.index, verdict, rule: isInt(o.rule) ? o.rule : null, why };
   });
 }

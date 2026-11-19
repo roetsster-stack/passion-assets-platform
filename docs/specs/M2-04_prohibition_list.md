@@ -28,7 +28,7 @@ wall in M2-04: approving, and showing an approved text, is M2-01.
 The desk sends the model only what a draft needs — the artist's name, dates and nationality, the titles, years and media
 of their works here, and the source texts. Never a value, a price, a location, an owner, a note.
 
-## THE LIST — as Michael approved it, 17 Nov 2026 (rule 6 his wording)
+## THE LIST — as Michael approved it, 17 Nov 2026 (rule 6 his wording; the register line as M2-04b set it, 18 Nov)
 1. **Never invent provenance.** No owner, sale, exhibition, publication or date that is not in the record or a cited source.
 2. **Never state or imply a value.** No price, estimate, auction result, market, "investment", "blue-chip", "sought-after",
    "appreciating". Enjoyment is the front door; value lives behind it (principle 1).
@@ -47,7 +47,7 @@ of their works here, and the source texts. Never a value, a price, a location, a
 9. **A draft is a draft.** It is marked as such until a named person approves it; the approval is dated and kept.
 10. **When unsure, write less.** A shorter true sentence beats a longer guessed one. "Not enough is known yet" is an answer.
 
-Register: plain, warm, exact — a museum's wall text, not a gallery's press release.
+Register: warm, exact and alive to the work — a good museum's audio guide, not a gallery's press release and not a CV.
 
 ## GOOD LOOKS LIKE
 - The desk refuses to run if the list is missing; every draft carries the list's version and the model's name.
@@ -160,7 +160,10 @@ at this commit `daaa969ce26f44f461d8b0bc1ab6ac183a65a39e`) and the model's name 
    tied to source numbers, in a fixed shape.
 4. *The desk's own checks, in plain code.* A sentence on no source, or on a source number that does not exist, is
    dropped. Then the rule checker (below). Then the lengths: one sentence of at most thirty words for why they
-   matter, at most 120 for a biography; anything beyond leaves from the end.
+   matter, at most 120 for a biography; anything beyond leaves from the end. _Said plainly, as the review asked
+   (18 Nov): plain code checks quotations word for word, the word lists, the sources and the lengths. A fact
+   written in the desk's own words is tested against its passage only by the second reading, step 5. M2-04b moves
+   the lengths after that reading and sets them at 250 words, and two sentences and sixty words._
 5. *The second reading.* The model reads what survived, against the list, and gives a verdict on every sentence:
    keep, remove (naming the rule), or flag. Removed sentences leave; flagged ones stay, listed as doubted.
 6. *What you read.* One report for the run — each artist's biography and the one sentence, with [n] after every
@@ -176,7 +179,12 @@ the page's publisher ("as Stevenson puts it"), or the person or body the passage
 Tate's page), or "the artist" where the passage is the artist's own statement or carries the artist's name;
 naming the subject of the draft is not naming a source. Only inside such a quotation may a ranking word, a value word or a
 word about a living person's private life appear; in the desk's own words, never. A paraphrase never carries a
-superlative. The checker's word lists are in `src/lib/drafting/rules.ts`, in plain sight: the list's own words
+superlative. _Corrected 18 Nov, after the review: as built here, sums of money, the sensitive classes and the
+private-life words were also let through inside an attributed quotation (blocker 1), and "the artist" or any
+capitalised phrase in the passage counted as naming a source (blocker 2). M2-04b checks money, auction houses, sales
+and the sensitive classes everywhere, quoted or not; allows private life only in the artist's own words, given to the
+artist; and names a source only by a distinctive name, a speaker the passage shows, or the artist for their own
+words._ The checker's word lists are in `src/lib/drafting/rules.ts`, in plain sight: the list's own words
 (price, estimate, auction, market, investment, blue-chip, sought-after, appreciating; the most, seminal, major,
 leading) and their kin; money in any currency (a currency word counts with an amount beside it — "two million
 rand" — not alone: a dollar bill in a collage is a thing); the sensitive classes (insured, condition, hangs in, owned by,
@@ -193,7 +201,9 @@ nobody writes one from a browser; approving is M2-01.
 **The drafts table — migration written, not applied.** `supabase/migrations/20261117120000_drafts.sql`: what the
 draft is about (an artist now; a work later), the field, the text, its sentences with their source numbers, the
 sources with their passages, what was removed and flagged, the list's version, the model, the status (draft,
-approved, rejected) and who decided and when — the decision must be dated and signed. Owner-only by row-level
+approved, rejected) and who decided and when — the decision must be dated and signed. _Corrected 18 Nov: the check
+as written here accepted a date without a signer, or a signer without a date (blocker 3); M2-04b fixes it in the same
+migration, still unapplied, and tests each half._ Owner-only by row-level
 security; every write in the audit log. It is applied only on your "Yes, apply it". Until then `npm run draft`
 says the table is not there yet and the drafts live in the report.
 
@@ -221,7 +231,8 @@ rules 1 to 10; the version is git's own hash of the file (two known answers, and
 the desk refuses without the list. The checker: every rule, the exact-match test with its normalisations, a set of
 fourteen hand-written bad sentences each with one planted fault — money, a market word, an auction, a paraphrased
 superlative, a quotation changed by one word, a quotation unattributed, no source, a source that does not exist, a
-work's location, the first person, a living person's divorce, your name — every one caught under its rule, and seven
+work's location, the first person, a living person's divorce, a record sum — every one caught under its rule (your
+name is tested beside them, not among them: the review's correction), and seven
 good sentences, a quoted superlative among them, clean; a whole good biography through whole; attribution by the
 publisher, by a person the passage names, by "the artist" — and not by the subject's own name. The supplied-text
 reader on a hand-written fixture (never Dan's text). The allowlist: its shape, the real file's contents, subdomains
@@ -263,8 +274,10 @@ about $1.80.
 - **Adams** — three sentences (C&, blank projects, ART AFRICA, ArtThrob) and Artforum's words on why he matters. Two
   sentences removed under rule 7: quotations the model attributed to The Art Newspaper and to blank projects that
   are not verbatim in any cited passage. The checker did its job.
-- **Naude** — nothing on the allowed sites; "Not enough is known yet." twice; the model was not asked to write. The
-  little-online test, as the spec wanted it.
+- **Naude** — nothing on the allowed sites; "Not enough is known yet." twice; the model was asked to search (one
+  request, six searches) and found nothing, so it was not asked to write. _Not the spec's "two true sentences and
+  'not enough is known yet'" case, as the review pointed out: the register spells the name "Hohanna Naude", which
+  may explain the empty search better than obscurity; the correction comes through the ingest (M2-04b)._
 In all: 16 requests, 30 searches, 497,549 input and 38,459 output tokens — about $3.
 
 *What the second attempt taught — three removals that were the checker's fault, not the model's, fixed in this PR
@@ -287,13 +300,18 @@ the artist's name. Then, on your word, the five were run a third time under the 
 - **Yiadom-Boakye** — five sentences from Tate, Corvi-Mora's CV, Jack Shainman and the Serpentine; why she matters in
   Hyperallergic's words. Two removed: one by the second reading, which caught "as she has explained to Tate" where
   the passage says only "as she has explained" — a claim added, rule 4; one for length, the Turner Prize shortlist,
-  past 120 words. "As she puts it" now counts as naming her, beside "according to Tate".
+  past 120 words. _The sentence passed because it says "according to Tate"; no code counted "as she puts it" — the
+review's correction of this line._
 - **Adams** — five sentences, nothing removed: blank projects, C&, Artforum, ArtThrob, ART AFRICA, The Art Newspaper;
   his own words from Frieze, attributed; why he matters, in blank projects' words. ART AFRICA's passage speaks of a
   named person's illness; the draft does not.
-- **Naude** — as before: nothing on the allowed sites, the list's own sentence twice, no call to the model.
+- **Naude** — as before: nothing on the allowed sites, the list's own sentence twice; the model searched and was not
+  asked to write.
 In all: 17 requests, 30 searches, 508,701 input and 29,717 output tokens — about $3. The table was not written (the
 migration awaits your yes); the drafts live in the report. For the day — three attempts and two probes — about $8.
+
+**Not shown.** The spec's tempting case of "a work whose meaning is much debated" was not run; Kentridge stood for
+the famous-auction-results case only. _Added 18 Nov, after the review._
 
 **What to read in the report.** Every sentence ends in [n] and every [n] is a source you can open, with the passage
 beneath it. No sum of money, no auction, no market, on any of the five. No "most important" or "seminal" but inside

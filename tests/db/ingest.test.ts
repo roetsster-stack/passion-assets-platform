@@ -315,6 +315,11 @@ describe.skipIf(!url)("M1-01 · the record arrives", () => {
       // the shape: one subject; a decision is dated and signed; only the two fields
       await expect(db.query("insert into drafts (collection_id, subject, field, text, sentences, sources, list_version, model) values ($1, 'artist', 'biography', 'x', '[]', '[]', 'v', 'm')", [cid])).rejects.toThrow(/drafts_one_subject/);
       await expect(db.query("update drafts set status = 'approved' where id = $1", [id])).rejects.toThrow(/drafts_decision_dated/);
+      // each half of a decision on its own is refused too (M2-04b, the review's blocker 3)
+      await expect(db.query("update drafts set status = 'approved', decided_at = now() where id = $1", [id])).rejects.toThrow(/drafts_decision_dated/);
+      await expect(db.query("update drafts set status = 'approved', decided_by = $2 where id = $1", [id, USER_A])).rejects.toThrow(/drafts_decision_dated/);
+      // an artist with a draft is not deleted under it — the table refuses, loudly (rule 9: kept)
+      await expect(db.query("delete from artists where id = $1", [artist.id])).rejects.toThrow(/foreign key|drafts_artist_id_fkey/);
       await expect(db.query("insert into drafts (collection_id, subject, artist_id, field, text, sentences, sources, list_version, model) values ($1, 'artist', $2, 'tombstone', 'x', '[]', '[]', 'v', 'm')", [cid, artist.id])).rejects.toThrow(/field/);
       await db.query("update drafts set status = 'approved', decided_by = $2, decided_at = now() where id = $1", [id, USER_A]);
       expect(await asUser(USER_A, "authenticated", `select status from drafts where id = '${id}'`)).toEqual([{ status: "approved" }]);

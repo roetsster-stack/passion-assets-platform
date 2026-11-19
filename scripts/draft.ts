@@ -117,7 +117,12 @@ async function main() {
             if ((err as { code?: string }).code === "42P01") {
               table = "missing";
               console.log("  the drafts table is not there yet (the migration awaits a yes); the report holds the drafts");
-            } else throw err;
+            } else {
+              // the draft stands in the report; only the table missed it — never listed as drafted and not drafted both (M2-04b)
+              const message = err instanceof Error ? err.message : String(err);
+              draft.notes.push(`not written to the drafts table: ${message}`);
+              console.error(`  not written to the drafts table: ${message}`);
+            }
           }
         }
       } catch (err) {

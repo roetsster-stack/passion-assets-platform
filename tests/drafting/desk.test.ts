@@ -1,8 +1,12 @@
 /**
  * M2-04 · The desk, against a stand-in model: supplied texts first, then the search on the
  * allowlist only; a sentence on no source or on a source that does not exist is dropped; the rule
- * checker and the second reading remove and flag; "Not enough is known yet." stands on nothing;
- * every draft carries the list's version and the model's name; the input holds nothing sensitive.
+ * checker and the second reading remove and flag; a biography over 250 words after the reading is
+ * sent back once to be shortened, keeping its four moves, and checked and read again — only what
+ * is still over is cut (18 Nov); the lengths come after the reading, a sentence the cut removes is
+ * not "flagged (kept)", and a field left empty says "Not enough is known yet." (M2-04b); a sentence
+ * with no verdict is doubted; every draft carries the list's version and the model's name; the
+ * input holds nothing sensitive.
  */
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -46,7 +50,7 @@ describe("the desk", () => {
       model: "claude-test-5",
       answer: {
         biography: [
-          { text: "Test Painter was born in Durban in 1980 and studied at the Michaelis School of Fine Art.", sources: [3] },
+          { text: "Born in Durban in 1980, Test Painter studied at the Michaelis School of Fine Art.", sources: [3] },
           { text: "Of *Blue Field*, Test Painter has written: “The blue is the blue of the bay in July, which I wanted to keep.”", sources: [1] },
           { text: "She exhibited in Paris in 2015.", sources: [] },
           { text: "She studied in London.", sources: [9] },
@@ -55,7 +59,11 @@ describe("the desk", () => {
           { text: "She paints the harbour.", sources: [2] },
           { text: "She painted a portrait of Sample Roets.", sources: [3] },
         ],
-        whyTheyMatter: [{ text: "Harbour Gallery considers her “one of the most important painters of her generation”.", sources: [3] }, { text: "A second sentence.", sources: [3] }],
+        whyTheyMatter: [
+          { text: "Harbour Gallery considers her “one of the most important painters of her generation”.", sources: [3] },
+          { text: "A second sentence.", sources: [3] },
+          { text: "A third sentence.", sources: [3] },
+        ],
       },
       verdicts: (req) =>
         req.sentences.map((s, i) => ({
@@ -81,7 +89,7 @@ describe("the desk", () => {
 
     const bio = draft.fields.find((f) => f.field === "biography")!;
     expect(bio.sentences.map((s) => s.text)).toEqual([
-      "Test Painter was born in Durban in 1980 and studied at the Michaelis School of Fine Art.",
+      "Born in Durban in 1980, Test Painter studied at the Michaelis School of Fine Art.",
       "Of *Blue Field*, Test Painter has written: “The blue is the blue of the bay in July, which I wanted to keep.”",
       "She paints the harbour.",
     ]);
@@ -96,14 +104,16 @@ describe("the desk", () => {
     expect(bio.flagged).toEqual([{ text: "She paints the harbour.", why: "doubtful" }]);
 
     const why = draft.fields.find((f) => f.field === "why_they_matter")!;
-    expect(why.sentences).toHaveLength(1);
-    expect(why.removed).toEqual([{ text: "A second sentence.", rule: "length", why: "why they matter is one sentence" }]);
+    expect(why.sentences).toHaveLength(2);
+    expect(why.removed).toEqual([{ text: "A third sentence.", rule: "length", why: "why they matter is at most two sentences" }]);
     // only the sources the kept sentences cite travel with the draft
     expect(draft.sources.map((s) => s.n)).toEqual([1, 2, 3]);
     expect(draft.usage.requests).toBe(1 + 1 + 2);
     expect(draft.usage.webSearches).toBe(2);
     // the second reading saw only what the rules had already let through
     expect(calls.read[0].sentences.map((s) => s.text)).not.toContain("Her work is a sound investment.");
+    // nothing ran long: nothing was sent back to be shortened
+    expect(calls.shorten).toHaveLength(0);
   });
 
   it("with nothing to write from, asks the model nothing and answers with the list's own sentence", async () => {
@@ -126,6 +136,110 @@ describe("the desk", () => {
     expect(draft.fields[0].text).toBe(`She paints. ${NOT_ENOUGH}`);
     expect(draft.fields[1].text).toBe(NOT_ENOUGH);
     expect(draft.fields.flatMap((f) => f.removed)).toEqual([]);
+  });
+
+  it("reads before it cuts — a sentence the reading removes makes room for one that fits — and a field emptied says so in the list's words", async () => {
+    const long = "Harbour Gallery " + "word ".repeat(53).trim() + ".";
+    const { model, calls } = standIn({
+      found,
+      answer: {
+        biography: [{ text: "She lives in Cape Town.", sources: [3] }],
+        whyTheyMatter: [
+          { text: "Harbour Gallery calls her a painter of light.", sources: [3] },
+          { text: long, sources: [3] },
+          { text: "She shows in Cape Town.", sources: [3] },
+        ],
+      },
+      verdicts: (req) =>
+        req.field === "biography"
+          ? [{ index: 1, verdict: "remove", rule: 4, why: "the passage does not say so" }]
+          : req.sentences.map((s, i) => ({ index: i + 1, verdict: s.text === long ? "remove" : "keep", rule: s.text === long ? 4 : null, why: "" })),
+    });
+    const draft = await draftArtist(painter, { model, list, sites, supplied });
+    const why = draft.fields.find((f) => f.field === "why_they_matter")!;
+    // the reading saw all three; under M2-04 the third would have been cut for length before anyone read it
+    expect(calls.read.find((r) => r.field === "why_they_matter")!.sentences).toHaveLength(3);
+    expect(why.sentences.map((s) => s.text)).toEqual(["Harbour Gallery calls her a painter of light.", "She shows in Cape Town."]);
+    expect(why.removed.map((r) => r.rule)).toEqual(["reading"]);
+    // why they matter is cut, never sent back to be shortened
+    expect(calls.shorten).toHaveLength(0);
+    const bio = draft.fields.find((f) => f.field === "biography")!;
+    expect(bio.sentences).toEqual([{ text: NOT_ENOUGH, sources: [] }]);
+    expect(bio.text).toBe(NOT_ENOUGH);
+    expect(bio.removed).toHaveLength(1);
+    expect(draft.notes).toContain("biography: nothing survived the checks — the list's own sentence stands");
+  });
+
+  it("a sentence the reading gives no verdict on is flagged, never passed", async () => {
+    const { model } = standIn({ found, answer: { biography: [{ text: "She lives in Cape Town.", sources: [3] }], whyTheyMatter: [] }, verdicts: () => [] });
+    const draft = await draftArtist(painter, { model, list, sites, supplied });
+    const bio = draft.fields.find((f) => f.field === "biography")!;
+    expect(bio.sentences.map((s) => s.text)).toEqual(["She lives in Cape Town."]);
+    expect(bio.flagged).toEqual([{ text: "She lives in Cape Town.", why: "the second reading gave no verdict" }]);
+    expect(draft.fields.find((f) => f.field === "why_they_matter")!.text).toBe(NOT_ENOUGH);
+  });
+
+  // six sentences of fifty words: a biography of 300, over the limit after the reading
+  const fifty = (n: number) => ({ text: `Sentence ${n} ` + "word ".repeat(47).trim() + " end.", sources: [3] });
+  const long = [1, 2, 3, 4, 5, 6].map(fifty);
+  const wordsIn = (texts: string[]) => texts.join(" ").split(/\s+/).filter(Boolean).length;
+
+  it("a biography over 250 words after the reading is sent back once to be shortened, keeping its four moves, and the shortened text is checked and read again", async () => {
+    const shortened = [
+      { text: "Born in Durban in 1980, Test Painter studied at the Michaelis School of Fine Art.", sources: [3] },
+      { text: "Her work is a sound investment.", sources: [3] },
+      { text: "She lives in Cape Town.", sources: [3] },
+      { text: "She paints the harbour.", sources: [3] },
+    ];
+    const { model, calls } = standIn({
+      found,
+      answer: { biography: long, whyTheyMatter: [{ text: NOT_ENOUGH, sources: [] }] },
+      shortened: () => shortened,
+      verdicts: (req) => req.sentences.map((s, i) => ({ index: i + 1, verdict: s.text === "She lives in Cape Town." ? "remove" : "keep", rule: s.text === "She lives in Cape Town." ? 4 : null, why: "not in the passage" })),
+    });
+    const draft = await draftArtist(painter, { model, list, sites, supplied });
+    const bio = draft.fields.find((f) => f.field === "biography")!;
+    // asked once, with what the reading had kept, the limit and the sources
+    expect(calls.shorten).toHaveLength(1);
+    expect(calls.shorten[0].field).toBe("biography");
+    expect(calls.shorten[0].limit).toBe(250);
+    expect(calls.shorten[0].sentences).toEqual(long);
+    expect(calls.shorten[0].sources.map((s) => s.n)).toEqual([1, 2, 3]);
+    // the shortened text went through the rules and the reading again
+    const readings = calls.read.filter((r) => r.field === "biography");
+    expect(readings).toHaveLength(2);
+    expect(readings[1].sentences.map((s) => s.text)).toEqual(["Born in Durban in 1980, Test Painter studied at the Michaelis School of Fine Art.", "She lives in Cape Town.", "She paints the harbour."]);
+    expect(bio.sentences.map((s) => s.text)).toEqual(["Born in Durban in 1980, Test Painter studied at the Michaelis School of Fine Art.", "She paints the harbour."]);
+    expect(bio.removed).toEqual([
+      { text: "Her work is a sound investment.", rule: 2, why: "rule 2: a word of the market (“investment”)" },
+      { text: "She lives in Cape Town.", rule: "reading", why: "the second reading (rule 4): not in the passage" },
+    ]);
+    expect(draft.notes).toContain(`biography: ${wordsIn(long.map((s) => s.text))} words after the reading, over 250 — the model shortened it once, to ${wordsIn(bio.sentences.map((s) => s.text))}`);
+    // search, draft, two readings of the biography, the shortening, one reading of why they matter
+    expect(draft.usage.requests).toBe(1 + 1 + 2 + 1 + 1);
+  });
+
+  it("what is still over after the one shortening is cut from the end — and a sentence the cut removes is not 'flagged (kept)'", async () => {
+    const { model, calls } = standIn({
+      found,
+      answer: { biography: long, whyTheyMatter: [{ text: NOT_ENOUGH, sources: [] }] },
+      verdicts: (req) => req.sentences.map((s, i) => ({ index: i + 1, verdict: s.text.startsWith("Sentence 6") ? "flag" : "keep", rule: null, why: "doubtful" })),
+    });
+    const draft = await draftArtist(painter, { model, list, sites, supplied });
+    const bio = draft.fields.find((f) => f.field === "biography")!;
+    expect(calls.shorten).toHaveLength(1);
+    expect(bio.sentences.map((s) => s.text)).toEqual(long.slice(0, 5).map((s) => s.text));
+    expect(bio.removed).toEqual([{ text: long[5].text, rule: "length", why: "over 250 words" }]);
+    expect(bio.flagged).toEqual([]);
+    expect(draft.notes).toContain("biography: 300 words after the reading, over 250 — the model shortened it once, to 300, still over: cut from the end");
+  });
+
+  it("a model that cannot shorten does not fail the draft: the biography is cut from the end, and the note says so", async () => {
+    const { model } = standIn({ found, answer: { biography: long, whyTheyMatter: [{ text: NOT_ENOUGH, sources: [] }] }, shortened: "decline" });
+    const draft = await draftArtist(painter, { model, list, sites, supplied });
+    const bio = draft.fields.find((f) => f.field === "biography")!;
+    expect(bio.sentences).toHaveLength(5);
+    expect(draft.notes).toContain("biography: 300 words after the reading, over 250 — the model could not shorten it (the model declined to shorten the draft); cut from the end instead");
   });
 
   it("drops a sentence on no source or on a source that does not exist, before any rule", () => {

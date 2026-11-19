@@ -17,8 +17,10 @@ create table public.drafts (
   id uuid primary key default gen_random_uuid(),
   collection_id uuid not null references public.collections (id) on delete cascade,
   subject public.draft_subject not null,
-  artist_id uuid references public.artists (id) on delete cascade,
-  item_id uuid references public.items (id) on delete cascade,
+  -- restrict, not cascade: an approved text is "kept" (rule 9). An artist or a work with drafts is not
+  -- deleted under them; the ingest leaves such an orphaned artist in place (M2-04b, after the review).
+  artist_id uuid references public.artists (id) on delete restrict,
+  item_id uuid references public.items (id) on delete restrict,
   field text not null check (field in ('biography', 'why_they_matter')),
   text text not null,
   sentences jsonb not null,                 -- [{ text, sources: [n, …] }]
@@ -36,7 +38,11 @@ create table public.drafts (
     (subject = 'artist' and artist_id is not null and item_id is null)
     or (subject = 'item' and item_id is not null and artist_id is null)
   ),
-  constraint drafts_decision_dated check ((status = 'draft') = (decided_by is null and decided_at is null))
+  -- a decision is dated and signed, both: a draft has neither; anything else has both (M2-04b, blocker 3)
+  constraint drafts_decision_dated check (
+    (status = 'draft' and decided_by is null and decided_at is null)
+    or (status <> 'draft' and decided_by is not null and decided_at is not null)
+  )
 );
 
 create index drafts_artist_idx on public.drafts (artist_id, field, created_at desc);

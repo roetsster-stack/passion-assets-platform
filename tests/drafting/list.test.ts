@@ -33,7 +33,8 @@ describe("the list", () => {
     expect(list.rules[1].text).toContain('"appreciating". Enjoyment is the front door');
     expect(list.rules[5].text).toContain("unless a cited source says exactly it, and then in their own words, attributed");
     expect(list.rules[9].text).toContain('"Not enough is known yet" is an answer');
-    expect(list.register).toBe("plain, warm, exact — a museum's wall text, not a gallery's press release.");
+    // the register line as M2-04b set it; rules 1 to 10 unchanged
+    expect(list.register).toBe("warm, exact and alive to the work — a good museum's audio guide, not a gallery's press release and not a CV.");
     expect(plainRules(list)).not.toContain("**");
     expect(plainRules(list)).toContain("6. No rank, no superlatives of our own.");
   });

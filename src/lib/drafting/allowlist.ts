@@ -1,7 +1,8 @@
 /**
  * M2-04 · The sources allowlist — docs/drafting/sources-allowlist.md, a short file Michael edits.
  * The model's web search may look only here; a citation from anywhere else is thrown away before
- * it can become a source. Each domain is checked to resolve when the desk runs.
+ * it can become a source — nor a shop or store page on an allowed site. Each domain is checked to
+ * resolve when the desk runs.
  */
 import { lookup as dnsLookup } from "node:dns/promises";
 import { existsSync, readFileSync } from "node:fs";
@@ -56,9 +57,26 @@ export function hostOf(url: string): string | null {
   }
 }
 
-/** The allowlisted site an address belongs to (subdomains included), or null. */
+/** A subdomain that sells: shop., store., webshop., e-shop. — a shop page is not a source (rule 2). */
+const SHOP_LABEL = /^(?:e-?)?(?:web)?(?:shop|store)s?$/i;
+
+/**
+ * The allowlisted site an address belongs to (subdomains included), or null — never a shop or store
+ * subdomain, and never an address that is not http(s): a `javascript:` address naming a site is not
+ * that site.
+ */
 export function siteFor(url: string, sites: Site[]): Site | null {
-  const host = hostOf(url);
-  if (!host) return null;
-  return sites.find((s) => host === s.domain || host.endsWith("." + s.domain)) ?? null;
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return null;
+  }
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return null;
+  const host = parsed.hostname.toLowerCase();
+  const site = sites.find((s) => host === s.domain || host.endsWith("." + s.domain));
+  if (!site) return null;
+  const labels = host === site.domain ? [] : host.slice(0, host.length - site.domain.length - 1).split(".");
+  if (labels.some((l) => SHOP_LABEL.test(l))) return null;
+  return site;
 }

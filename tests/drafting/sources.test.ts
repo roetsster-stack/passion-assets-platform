@@ -1,8 +1,10 @@
 /**
  * M2-04 · Supplied texts and the allowlist: a supplied file becomes passages the model can cite and
  * the checker can match; files are found by surname without case or diacritics; the allowlist is
- * a short file of domains, and nothing outside it is ever a source.
+ * a short file of domains, and nothing outside it is ever a source — nor a shop or store page on a site
+ * that is; the desk reads the artists' folder and never the collector's (M2-04b: three voices).
  */
+import { readdirSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { isDomain, loadAllowlist, MAX_SITES, parseAllowlist, resolving, siteFor } from "@/lib/drafting/allowlist";
@@ -52,6 +54,15 @@ describe("supplied texts", () => {
     expect(JSON.stringify(sources)).not.toContain("sent by email");
     expect(suppliedSources(null, { surname: "Painter" })).toEqual([]);
   });
+
+  it("never reads the collector's folder: the collector's reading is a voice of its own, never the desk's", () => {
+    // the fixture folder exists and holds a reading of the same artist, so the proof is not an accident of an empty folder
+    expect(readdirSync(path.join(CONTEXT, "collector"))).toEqual(["Painter_Test.md"]);
+    const files = suppliedFilesFor(CONTEXT, { surname: "Painter" });
+    expect(files.map((f) => path.relative(CONTEXT, f))).toEqual([path.join("artists", "Painter_Test.md")]);
+    const text = JSON.stringify(suppliedSources(CONTEXT, { surname: "Painter" }));
+    for (const never of ["collector's reading", "my study", "Sample Collector", "bought"]) expect(text).not.toContain(never);
+  });
 });
 
 describe("the sources allowlist", () => {
@@ -63,7 +74,10 @@ describe("the sources allowlist", () => {
     for (const s of real) expect(isDomain(s.domain), s.domain).toBe(true);
     expect(real.find((s) => s.domain === "whatiftheworld.com")?.name).toBe("WHATIFTHEWORLD");
     expect(real.map((s) => s.domain)).toEqual(expect.arrayContaining(["goodman-gallery.com", "stevenson.info", "sahistory.org.za", "artthrob.co.za", "tate.org.uk"]));
-    expect(real.map((s) => s.domain).join(" ")).not.toMatch(/strauss|aspire|sothebys|christies|artsy|artnet/);
+    // no auction house, no marketplace: Ocula came off in M2-04b (it sells art)
+    expect(real.map((s) => s.domain).join(" ")).not.toMatch(/strauss|aspire|sothebys|christies|artsy|artnet|ocula/);
+    // a second name in parentheses is a name the checker accepts
+    expect(real.find((s) => s.domain === "metmuseum.org")?.name).toBe("The Metropolitan Museum of Art (the Met)");
   });
 
   it("reads `- domain — name` lines and ignores the rest; a pasted address is reduced to its domain", () => {
@@ -76,13 +90,22 @@ describe("the sources allowlist", () => {
     expect(() => parseAllowlist(Array.from({ length: 65 }, (_, i) => `- site${i}.example.com — s`).join("\n"))).toThrow(/at most 64/);
   });
 
-  it("knows which site an address belongs to — subdomains yes, look-alikes no", () => {
-    const sites = [{ domain: "goodman-gallery.com", name: "Goodman Gallery" }];
+  it("knows which site an address belongs to — subdomains yes, look-alikes no, shops and stores no, nothing but http(s)", () => {
+    const sites = [{ domain: "goodman-gallery.com", name: "Goodman Gallery" }, { domain: "serpentinegalleries.org", name: "Serpentine" }, { domain: "tate.org.uk", name: "Tate" }];
     expect(siteFor("https://www.goodman-gallery.com/artists/x", sites)?.name).toBe("Goodman Gallery");
     expect(siteFor("https://goodman-gallery.com/", sites)?.name).toBe("Goodman Gallery");
     expect(siteFor("https://goodman-gallery.com.evil.example/", sites)).toBeNull();
     expect(siteFor("https://evilgoodman-gallery.com/", sites)).toBeNull();
     expect(siteFor("not an address", sites)).toBeNull();
+    // the review: a shop page is a seller's page, and a javascript: address naming a site is not that site
+    expect(siteFor("https://www.serpentinegalleries.org/whats-on/x", sites)?.name).toBe("Serpentine");
+    expect(siteFor("https://shop.serpentinegalleries.org/products/x", sites)).toBeNull();
+    expect(siteFor("https://store.tate.org.uk/x", sites)).toBeNull();
+    expect(siteFor("https://webshop.tate.org.uk/x", sites)).toBeNull();
+    expect(siteFor("https://shop.media.tate.org.uk/x", sites)).toBeNull();
+    expect(siteFor("javascript://tate.org.uk/%0aalert(1)", sites)).toBeNull();
+    expect(siteFor("ftp://tate.org.uk/", sites)).toBeNull();
+    expect(siteFor("http://tate.org.uk/art/x", sites)?.name).toBe("Tate");
   });
 
   it("checks that each domain resolves and reports the ones that do not", async () => {
