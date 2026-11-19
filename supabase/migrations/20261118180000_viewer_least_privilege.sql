@@ -118,6 +118,45 @@ alter table public.items
   drop column notes_raw,
   drop column airtable_raw;
 
+-- A provenance line's owner-only half (the review of PR #13, and Michael's yes of 19 Nov): its
+-- reviews column and its raw Airtable record, which carry attachment filenames and amounts. The
+-- line itself — the label and its order, which the single work shows — stays where it is, with the
+-- address and the added-info text. Built the same way, in the same order: guarded before the copy.
+create table public.provenance_private (
+  id uuid primary key default gen_random_uuid(),
+  provenance_event_id uuid not null unique references public.provenance_events (id) on delete cascade,
+  collection_id uuid not null references public.collections (id) on delete cascade,
+  reviews text,
+  airtable_raw jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index provenance_private_collection_idx on public.provenance_private (collection_id);
+
+create trigger provenance_private_set_updated_at before update on public.provenance_private
+  for each row execute function public.set_updated_at();
+create trigger provenance_private_audit after insert or update or delete on public.provenance_private
+  for each row execute function public.audit_row();
+
+alter table public.provenance_private enable row level security;
+
+create policy provenance_private_select on public.provenance_private
+  for select to authenticated using (public.is_collection_owner(collection_id));
+
+revoke all on public.provenance_private from anon, public;
+revoke insert, update, delete, truncate, references, trigger on public.provenance_private from authenticated;
+grant select on public.provenance_private to authenticated;
+grant all on public.provenance_private to service_role;
+
+insert into public.provenance_private (provenance_event_id, collection_id, reviews, airtable_raw, created_at, updated_at)
+select id, collection_id, reviews, airtable_raw, created_at, updated_at
+from public.provenance_events;
+
+alter table public.provenance_events
+  drop column reviews,
+  drop column airtable_raw;
+
 -- The owners, who owns what, and the documents: the owner's alone from here on. An advisor reads
 -- none until the advisor door is specced; a certificate of authenticity could be opened to viewers
 -- later, by kind, if wanted.

@@ -81,7 +81,8 @@ the location and its tags, the condition note, the admin, comments and notes fie
 imported — moves every work's values into it, and drops those fifteen columns from `items`. The move itself is in
 the audit log as `migration:sec-02` (second round). The new table is readable by the collection's owner alone and
 only with both factors (the same `is_collection_owner` the drafts table uses); the signed-in may not write it, the
-anonymous role gets nothing, every write is audited. The
+anonymous role gets nothing, every write is audited. A provenance line's reviews column and raw Airtable record move
+the same way, into `provenance_private`, one row per line, on your yes of 19 Nov (below). The
 owners, who owns what, and the documents keep their rows and lose their readers: their policies now say owner too. An
 advisor reads what a viewer reads, as you ruled; Brett on 30 November sees the wall, the works, the glass, the
 tombstone, how a work came, and the provenance as entered. Nothing a screen reads moves: the wall and the single work
@@ -152,7 +153,8 @@ applied in order on a fresh schema. Until that is green, the migration has been 
 **Not done, and noticed.** `collection_members` is still readable by every member: a viewer can list who else is in
 the collection, by user id and role — not in this spec; say if it should go owner-only with the rest. The audit log
 keeps the old `items` rows with their values, as it should, and is owner-only already. The advisor door, per-work
-sharing, and the free text of provenance lines (M2-03) stay out of scope. This branch and `m2-04b-checker` both edit
+sharing, and the structured provenance of M2-03 stay out of scope (a line's reviews column and raw record moved on
+19 Nov, below; its label, address and added-info text stay). This branch and `m2-04b-checker` both edit
 `src/lib/ingest/run.ts` and `tests/db/ingest.test.ts` in different places; whichever merges second should merge
 cleanly, and if not the conflict is a few lines.
 
@@ -172,9 +174,8 @@ in every row. So nothing more moves off `items`. On provenance: `airtable_raw` c
 before a figure, in ten of its strings) and invoice names (four attachment filenames); `reviews` carries attachment
 filenames (`.pdf`, two lines) and no amount or invoice word; `details_url` holds web addresses only (one path has a
 room word in it); `added_info` is empty. The spec puts provenance text out of scope and you asked for the `items`
-move only, so those two provenance columns are not moved here: a viewer who queries the database directly, on
-purpose, can read them. Say if `provenance_events.airtable_raw` and `reviews` should go owner-only with the rest —
-the same companion-table move, a small follow-up.
+move only, so those two provenance columns were reported, not moved — and on 19 Nov you said to move them; see
+"Provenance" below.
 
 **Blocker 1 — the valuation's date.** `airtable_modified_at` is the date the current value was last set, and a viewer
 could read it. It is now the fifteenth of `item_private`'s moved columns — in the table, the copy and the drops of
@@ -201,7 +202,22 @@ the works joins `item_private`, so before the migration it fails there, inside t
 fields on one work and nothing private on another, and reads both back. *13:* a work whose private row is missing is
 written again on the next run, whatever its hash; the test deletes one and runs the ingest.
 
+**Provenance — 19 Nov, on your "Yes, move them".** `provenance_events.reviews` and `provenance_events.airtable_raw`
+move into `provenance_private`: one row per provenance line, keyed by the line's id, owner-only with both factors,
+audited, with the same grants — built in the same migration, in the same order (guarded before the copy, so the move
+is in the audit log as `migration:sec-02`), and the two columns dropped from the line. The line itself keeps what
+the single work shows, the label and its order, and with them `details_url` (web addresses only, by the check) and
+`added_info` (empty in every row today; say if it should follow). The ingest writes both halves of a line in its one
+transaction — the line, then its private row, found by the line's id and rewritten whenever the line is — and a line
+whose private row is missing is written again on the next run. The whole-record test now reads the provenance
+record from the private table; the migration test seeds a line the old way, with a reviews filename and a raw
+record, and reads both back from `provenance_private` with neither column left on the line; `provenance_private` is
+in the owner-only loop; the viewer asking for its columns gets nothing while the owner reads one row per line; the
+line's columns are exactly a list the test holds; and a private row deleted by hand is back after the next run, with
+the line counted as updated and every work unchanged. Still one migration file, amended in place: step 5's "exactly
+two files" holds. `supabase db push` on the live database will now also move 84 provenance lines' private halves.
+
 **Not done, by your list.** Nit 11 (a composite foreign key tying `item_private.collection_id` to its work's
 collection), nit 12 (a viewer can tell that something private changed, never what), nit 14 (members can see each
-other, by user id and role), and the provenance move above. Lint, typecheck and the 202 unit tests pass on Workshop;
-the database tests, as before, run in CI on the pull request.
+other, by user id and role). Lint, typecheck and the 202 unit tests pass on Workshop; the database tests, as before,
+run in CI on the pull request.

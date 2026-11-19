@@ -5,7 +5,7 @@
  * Three phases:
  *   A. read and map (no writes)
  *   B. one transaction: artists, items — both halves of each work, the visible and the owner-only
- *      (SEC-02) —, ownership, provenance
+ *      (SEC-02) —, ownership, provenance — both halves of each line too
  *   C. attachments, one at a time, each committed as it lands — so an interrupted run resumes
  *      where it stopped and never leaves a half-written picture.
  *   D. the ladder (M1-02a): every Airtable photograph has its renditions cut, then each work's
@@ -517,10 +517,15 @@ async function syncProvenance(
   const orderOf = new Map<string, Map<string, number>>();
   for (const { row } of items) orderOf.set(row.airtable_record_id, new Map(row.provenance_record_ids.map((id, i) => [id, i])));
 
-  const existing = await db.query<{ id: string; airtable_record_id: string; item_id: string; content_hash: string | null }>(
-    "select id, airtable_record_id, item_id, content_hash from provenance_events where collection_id = $1 and airtable_record_id is not null and item_id = any($2::uuid[])",
+  // Each line with whether its owner-only half — the reviews column and the raw record (SEC-02) — is there.
+  const existing = await db.query<{ id: string; airtable_record_id: string; item_id: string; content_hash: string | null; has_private: boolean }>(
+    `select e.id, e.airtable_record_id, e.item_id, e.content_hash, p.provenance_event_id is not null as has_private
+       from provenance_events e left join provenance_private p on p.provenance_event_id = e.id
+      where e.collection_id = $1 and e.airtable_record_id is not null and e.item_id = any($2::uuid[])`,
     [collectionId, [...itemIds.values()]],
   );
+  const privateUpsert = `insert into provenance_private (provenance_event_id, collection_id, reviews, airtable_raw) values ($1, $2, $3, $4)
+     on conflict (provenance_event_id) do update set reviews = excluded.reviews, airtable_raw = excluded.airtable_raw`;
   const byKey = new Map(existing.rows.map((r) => [`${r.airtable_record_id}|${r.item_id}`, r]));
   const want = new Set<string>();
 
@@ -533,24 +538,32 @@ async function syncProvenance(
       const key = `${p.airtable_record_id}|${itemId}`;
       want.add(key);
       const cur = byKey.get(key);
-      if (cur && cur.content_hash === hash) {
+      if (cur && cur.content_hash === hash && cur.has_private) {
         counts.unchanged++;
         continue;
       }
       const raw = JSON.stringify(p.raw);
+      let id: string;
       if (cur) {
-        await db.query(
-          "update provenance_events set label=$2, details_url=$3, reviews=$4, added_info=$5, sort_order=$6, airtable_raw=$7, content_hash=$8 where id=$1",
-          [cur.id, p.label, p.details_url, p.reviews, p.added_info, sortOrder, raw, hash],
-        );
+        await db.query("update provenance_events set label=$2, details_url=$3, added_info=$4, sort_order=$5, content_hash=$6 where id=$1", [
+          cur.id,
+          p.label,
+          p.details_url,
+          p.added_info,
+          sortOrder,
+          hash,
+        ]);
+        id = cur.id;
         counts.updated++;
       } else {
-        await db.query(
-          "insert into provenance_events (collection_id, item_id, label, details_url, reviews, added_info, sort_order, airtable_record_id, airtable_raw, content_hash) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
-          [collectionId, itemId, p.label, p.details_url, p.reviews, p.added_info, sortOrder, p.airtable_record_id, raw, hash],
+        const ins = await db.query<{ id: string }>(
+          "insert into provenance_events (collection_id, item_id, label, details_url, added_info, sort_order, airtable_record_id, content_hash) values ($1,$2,$3,$4,$5,$6,$7,$8) returning id",
+          [collectionId, itemId, p.label, p.details_url, p.added_info, sortOrder, p.airtable_record_id, hash],
         );
+        id = ins.rows[0].id;
         counts.created++;
       }
+      await db.query(privateUpsert, [id, collectionId, p.reviews, raw]);
     }
   }
   for (const r of existing.rows) {

@@ -33,7 +33,7 @@ describe.skipIf(!url)("M1-01 · the record arrives", () => {
   let db: Client;
   const USER_A = "11111111-1111-4111-8111-111111111111"; // a member (owner)
   const USER_B = "22222222-2222-4222-8222-222222222222"; // a stranger
-  const ALL_TABLES = ["collections", "collection_members", "owners", "artists", "items", "item_private", "item_owners", "provenance_events", "images", "documents", "ingest_runs", "audit_log", "drafts"];
+  const ALL_TABLES = ["collections", "collection_members", "owners", "artists", "items", "item_private", "item_owners", "provenance_events", "provenance_private", "images", "documents", "ingest_runs", "audit_log", "drafts"];
   /** The owner-only half of a work (SEC-02): off `items`, on `item_private`, read by the owner alone. */
   const PRIVATE = ["purchase_price", "purchase_currency", "purchase_price_zar", "current_value", "current_value_currency", "valuation_date", "valuation_source", "airtable_modified_at", "location", "location_tags", "condition_note", "admin_notes", "comments_raw", "notes_raw", "airtable_raw"];
   /** Everything `items` may carry — the whole list, so a new column fails here until it is placed on purpose (SEC-02, the review's should-fix 4). */
@@ -42,6 +42,10 @@ describe.skipIf(!url)("M1-01 · the record arrives", () => {
     "acquired_on", "acquired_from", "credit_gallery", "status", "sold_year", "collectors_story", "work_context", "links", "has_high_res", "has_low_res", "has_invoice",
     "has_coa", "high_res_note", "visibility", "airtable_record_id", "content_hash", "source_removed_at", "created_at", "updated_at",
   ];
+  /** A provenance line's owner-only half (SEC-02, 19 Nov): the reviews column and the raw record, on `provenance_private`. */
+  const PROVENANCE_PRIVATE = ["reviews", "airtable_raw"];
+  /** Everything `provenance_events` may carry — the label and its order, which the single work shows, and the rest of the line. */
+  const PROVENANCE_COLUMNS = ["id", "collection_id", "item_id", "label", "event_type", "event_date", "party", "details_url", "added_info", "sort_order", "airtable_record_id", "content_hash", "created_at", "updated_at"];
 
   function deps(overrides: Partial<IngestDeps> = {}): IngestDeps {
     return {
@@ -92,7 +96,7 @@ describe.skipIf(!url)("M1-01 · the record arrives", () => {
       if (file.startsWith("20261118180000")) privateSeed = await seedPrivateFields(migrationSeed.collectionId);
       await db.query(readFileSync(path.join(dir, file), "utf8"));
       if (file.startsWith("20261103150000")) migrationSeed.after = await readSeed(migrationSeed.itemId);
-      if (file.startsWith("20261118180000")) privateSeed.after = await readPrivateSeed(privateSeed.itemId, privateSeed.emptyId);
+      if (file.startsWith("20261118180000")) privateSeed.after = await readPrivateSeed(privateSeed.itemId, privateSeed.emptyId, privateSeed.lineId);
     }
     await db.query("delete from collections where id = $1", [migrationSeed.collectionId]);
     await db.query("delete from audit_log");
@@ -119,7 +123,12 @@ describe.skipIf(!url)("M1-01 · the record arrives", () => {
     return (await db.query<{ storage_key: string; is_hero: boolean }>("select storage_key, is_hero from images where item_id = $1 order by created_at", [itemId])).rows;
   }
 
-  let privateSeed: { itemId: string; emptyId: string; after: { moved: Record<string, unknown> | null; empty: Record<string, unknown> | null; stillOnItems: string[]; audited: number } };
+  let privateSeed: {
+    itemId: string;
+    emptyId: string;
+    lineId: string;
+    after: { moved: Record<string, unknown> | null; empty: Record<string, unknown> | null; stillOnItems: string[]; audited: number; line: Record<string, unknown> | null; stillOnLines: string[] };
+  };
   // Every one of the fifteen fields set on one work, and a second work with none of them (the review's nit 10).
   async function seedPrivateFields(collectionId: string) {
     const i = await db.query<{ id: string }>(
@@ -130,15 +139,25 @@ describe.skipIf(!url)("M1-01 · the record arrives", () => {
       [collectionId],
     );
     const e = await db.query<{ id: string }>("insert into items (collection_id, title) values ($1, 'Seed with nothing private') returning id", [collectionId]);
-    return { itemId: i.rows[0].id, emptyId: e.rows[0].id, after: { moved: null, empty: null, stillOnItems: [], audited: 0 } };
+    // and a provenance line the old way, its reviews and raw record on the line itself
+    const l = await db.query<{ id: string }>(
+      `insert into provenance_events (collection_id, item_id, label, details_url, reviews, added_info, sort_order, airtable_raw)
+       values ($1, $2, 'Bought from a gallery', 'https://gallery.example/', 'Gallery_invoice_R45000.pdf', 'Added', 0, '{"fields": {"y": 2}}') returning id`,
+      [collectionId, i.rows[0].id],
+    );
+    return { itemId: i.rows[0].id, emptyId: e.rows[0].id, lineId: l.rows[0].id, after: { moved: null, empty: null, stillOnItems: [], audited: 0, line: null, stillOnLines: [] } };
   }
   const PRIVATE_ROW = `select purchase_price::text, purchase_currency, purchase_price_zar::text, current_value::text, current_value_currency, valuation_date::text, valuation_source,
                               to_char(airtable_modified_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as airtable_modified_at,
                               location, location_tags, condition_note, admin_notes, comments_raw, notes_raw, airtable_raw
                          from item_private where item_id = $1`;
-  async function readPrivateSeed(itemId: string, emptyId: string) {
+  async function readPrivateSeed(itemId: string, emptyId: string, lineId: string) {
     const moved = (await db.query(PRIVATE_ROW, [itemId])).rows[0] ?? null;
     const empty = (await db.query(PRIVATE_ROW, [emptyId])).rows[0] ?? null;
+    const line = (await db.query("select reviews, airtable_raw from provenance_private where provenance_event_id = $1", [lineId])).rows[0] ?? null;
+    const stillOnLines = (
+      await db.query<{ column_name: string }>("select column_name from information_schema.columns where table_schema = 'public' and table_name = 'provenance_events' and column_name = any($1::text[])", [PROVENANCE_PRIVATE])
+    ).rows.map((r) => r.column_name);
     const stillOnItems = (
       await db.query<{ column_name: string }>("select column_name from information_schema.columns where table_schema = 'public' and table_name = 'items' and column_name = any($1::text[])", [PRIVATE])
     ).rows.map((r) => r.column_name);
@@ -151,7 +170,7 @@ describe.skipIf(!url)("M1-01 · the record arrives", () => {
         )
       ).rows[0].n,
     );
-    return { moved, empty, stillOnItems, audited };
+    return { moved, empty, stillOnItems, audited, line, stillOnLines };
   }
 
   it("M1-02a · the migration clears a work's second picture before it forbids one, so db push succeeds on main's data", () => {
@@ -200,6 +219,9 @@ describe.skipIf(!url)("M1-01 · the record arrives", () => {
     });
     // both inserts are in the audit log, as the migration
     expect(privateSeed.after.audited).toBe(2);
+    // and the provenance line's reviews and raw record moved the same way (19 Nov)
+    expect(privateSeed.after.stillOnLines).toEqual([]);
+    expect(privateSeed.after.line).toEqual({ reviews: "Gallery_invoice_R45000.pdf", airtable_raw: { fields: { y: 2 } } });
   });
 
   it("first run brings everything across; the second run changes nothing", async () => {
@@ -252,7 +274,9 @@ describe.skipIf(!url)("M1-01 · the record arrives", () => {
     );
     expect(item.rows[0].airtable_raw.fields[F.title]).toBe("Study in Grey");
     expect(JSON.stringify(item.rows[0].airtable_raw)).not.toContain("cdn.example.test");
-    const prov = await db.query<{ airtable_raw: { id: string } }>("select airtable_raw from provenance_events where airtable_record_id = 'recPPP00000000001' limit 1");
+    const prov = await db.query<{ airtable_raw: { id: string } }>(
+      "select p.airtable_raw from provenance_private p join provenance_events e on e.id = p.provenance_event_id where e.airtable_record_id = 'recPPP00000000001' limit 1",
+    );
     expect(prov.rows[0].airtable_raw.id).toBe("recPPP00000000001");
   });
 
@@ -434,7 +458,7 @@ describe.skipIf(!url)("M1-01 · the record arrives", () => {
 
     // What the register knows: the owner's alone, and only with both factors. A viewer, an advisor, a stranger, a half-signed-in owner: none of it.
     // The audit log — which keeps the old `items` rows with their values — and the run log are in the loop too (the review's should-fix 5).
-    for (const t of ["item_private", "owners", "item_owners", "documents", "audit_log", "ingest_runs"]) {
+    for (const t of ["item_private", "provenance_private", "owners", "item_owners", "documents", "audit_log", "ingest_runs"]) {
       const count = `select count(*)::int as n from ${t}`;
       expect((await asUser(USER_A, "authenticated", count))[0].n, `${t} for the owner`).toBeGreaterThan(0);
       for (const u of [USER_C, USER_D, USER_B]) expect(await asUser(u, "authenticated", count), `${t} for ${u}`).toEqual([{ n: 0 }]);
@@ -453,6 +477,12 @@ describe.skipIf(!url)("M1-01 · the record arrives", () => {
     // What `items` carries is exactly the list above: a column added to it fails here until someone places it on purpose.
     const columns = (await db.query<{ column_name: string }>("select column_name from information_schema.columns where table_schema = 'public' and table_name = 'items'")).rows.map((r) => r.column_name);
     expect([...columns].sort()).toEqual([...ITEMS_COLUMNS].sort());
+    // The provenance line the same way: its reviews and raw record are off the line and the owner's alone; the line carries exactly its list (19 Nov).
+    for (const c of PROVENANCE_PRIVATE) await expect(asUser(USER_A, "authenticated", `select ${c} from provenance_events limit 1`), c).rejects.toThrow(/does not exist/);
+    const lineColumns = (await db.query<{ column_name: string }>("select column_name from information_schema.columns where table_schema = 'public' and table_name = 'provenance_events'")).rows.map((r) => r.column_name);
+    expect([...lineColumns].sort()).toEqual([...PROVENANCE_COLUMNS].sort());
+    expect(await asUser(USER_C, "authenticated", `select reviews, airtable_raw from provenance_private where collection_id = '${cid}'`)).toEqual([]);
+    expect((await asUser(USER_A, "authenticated", `select count(*)::int as n from provenance_private where collection_id = '${cid}'`))[0].n).toBe(ownerLine.length);
 
     // The ingest still changes nothing on a second run; both halves are audited as the ingest's writes.
     const before = Number((await db.query<{ n: string }>("select count(*) n from audit_log where table_name = 'item_private'")).rows[0].n);
@@ -468,6 +498,13 @@ describe.skipIf(!url)("M1-01 · the record arrives", () => {
     expect(repaired.items).toEqual({ created: 0, updated: 1, unchanged: 2, removed: 0 });
     expect(await asUser(USER_A, "authenticated", `select item_id from item_private where item_id = '${item}'`)).toHaveLength(1);
     expect(await asUser(USER_C, "authenticated", `select item_id from item_private where item_id = '${item}'`)).toEqual([]);
+    // and the same for a provenance line's private half
+    const lineId = (await db.query<{ id: string }>("select id from provenance_events where collection_id = $1 order by id limit 1", [cid])).rows[0].id;
+    await db.query("delete from provenance_private where provenance_event_id = $1", [lineId]);
+    const lineRepaired = await runIngest(deps({ store: createMemoryStore() }));
+    expect(lineRepaired.provenance).toEqual({ created: 0, updated: 1, unchanged: 2, removed: 0 });
+    expect(lineRepaired.items).toEqual({ created: 0, updated: 0, unchanged: 3, removed: 0 });
+    expect(await asUser(USER_A, "authenticated", `select provenance_event_id from provenance_private where provenance_event_id = '${lineId}'`)).toHaveLength(1);
   });
 
   it("M1-02a · the ladder: every picture's renditions cut once; a master becomes the picture and is never returned to a page", async () => {
