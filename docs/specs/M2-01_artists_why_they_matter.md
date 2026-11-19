@@ -178,11 +178,16 @@ draft; where you sent it back with a note, the next draft is written to answer i
 the sources, still under the list — the model sees the note inside `<note>` delimiters as a request
 about emphasis and matter, and the new draft records which draft it answers (`answers`). The report
 prints the note above the draft; the Drafts screen shows "Written to answer your note: …". `--all`
-drafts every artist unless the newest draft of each of their two texts is approved — so an artist whose
-"why they matter" you approved and whose biography you sent back is drafted again, both fields, and the
-note is answered (_corrected 19 Nov, second round:_ the first build skipped any artist with one approved
-text, which would have left such a biography to `--artist` alone). Run after the migration is applied,
-the command needs the new columns.
+drafts, by field, only where there is no draft yet or the newest draft was sent back: a field whose newest
+draft waits is left for you to read, and an approved one stands. So an artist whose "why they matter"
+you approved and whose biography you sent back gets a new biography that answers the note, and nothing
+else; run on a register where every draft waits, `--all` drafts nobody. The desk still writes both texts
+in one call; only the wanted fields reach the table and the report. `--artist` is the deliberate request
+and drafts both fields as before (_corrected 19 Nov, second round:_ the first build skipped any artist
+with one approved text, which would have left such a biography to `--artist` alone; _third round:_ the
+second drafted every field not yet approved, so a second `--all` that day would have drafted all 33
+again beside the drafts not yet read — the check of round two, 11:35). Run after the migration is
+applied, the command needs the new columns.
 
 **The three follow-ups from the pre-flight check, built into the desk.**
 1. A quotation given to the artist where the passage shows no one speaking is removed (rule 7),
@@ -290,3 +295,20 @@ migration file changed in place since it is not yet applied._
   collection's draft, half-signed-in or not; this owner refused on theirs; each owner reads their own
   approved text alone through the view, and nothing of the other's drafts.
 - Tests: 284 pass here without a database; the 15 database tests ran again against PGlite with the changed migration, all passing — 299 in all.
+
+## BUILT — 19 Nov 2026, third round: the check of round two (PR #14, 11:35)
+
+- **The catch.** `wantsDraft` drafted an artist unless the newest draft of each field was approved, so a
+  field merely waiting counted as wanting a draft: a second `--all` would have drafted all 33 again, at
+  about $30, beside the drafts not yet read. The migration is untouched; this is the script and its pure code.
+- **The fix.** `fieldsToDraft` in `src/lib/drafting/pending.ts`: a field is drafted when it has no draft
+  or its newest draft was sent back; waiting and approved fields are skipped. `wantsDraft` is true when
+  some field is. Under `--all`, `onlyFields` keeps of what the desk wrote only the wanted fields, with the
+  sources they cite and the notes they answer, so a waiting or approved field is never drafted over; the
+  desk's one call still writes both texts. `--artist` is unchanged.
+- **Tests** (`tests/drafting/pending.test.ts`): each field alone and together, no draft, both waiting,
+  both approved, sent back, sent back and answered; the catch itself — 33 artists with two waiting drafts
+  each are drafted by nobody, and sending one biography back drafts that artist's biography and nothing
+  else; the narrowing keeps the usage, the run's notes and the input untouched.
+- Not run: `--all`, on Michael's instruction. The migration was applied earlier today and is not changed.
+- Tests: 286 pass here without a database (two more than the second round); the 15 database tests are untouched by this change.

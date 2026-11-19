@@ -4,7 +4,7 @@
  * decided. What waits is shown; what was rejected, with its note, is answered by the next draft;
  * what was approved is the artist's text. Nothing here knows about the database.
  */
-import type { Answer, Field } from "./types";
+import { FIELDS, type Answer, type Draft, type Field } from "./types";
 
 export type DraftStatus = "draft" | "approved" | "rejected";
 
@@ -56,12 +56,32 @@ export function pending<T extends DraftRow>(rows: T[], artistOrder: string[]): P
 }
 
 /**
- * For `--all`: an artist is drafted unless the newest draft of each field is approved — so a biography
- * sent back with a note is drafted again though the other field stands approved, and an artist with no
- * draft yet is drafted (the review of PR #14, should-fix 4). An artist with both texts approved is left.
+ * For `--all`, by field: a field is drafted when it has no draft yet, or when its newest draft was sent
+ * back — the next draft answers the note. A field whose newest draft waits is left for the owner to
+ * read, and an approved one stands. (The review of PR #14, should-fix 4, and its check of round two:
+ * the first fix drafted every field not yet approved, so a second `--all` would have drafted all 33
+ * again beside the drafts not yet read.)
  */
-export function wantsDraft(latest: Partial<Record<Field, Pick<DraftRow, "status">>> | undefined): boolean {
-  return (["biography", "why_they_matter"] as Field[]).some((f) => latest?.[f]?.status !== "approved");
+export function fieldsToDraft(latest: Partial<Record<Field, Pick<DraftRow, "status">>> | undefined): Field[] {
+  return FIELDS.filter((f) => {
+    const status = latest?.[f]?.status;
+    return status === undefined || status === "rejected";
+  });
+}
+
+/** For `--all`: an artist is drafted when some field of theirs is. */
+export const wantsDraft = (latest: Partial<Record<Field, Pick<DraftRow, "status">>> | undefined): boolean => fieldsToDraft(latest).length > 0;
+
+/**
+ * Of a draft the desk wrote, only these fields, with the sources they cite and the notes they answer.
+ * The desk writes both texts in one call; under `--all`, only the fields that want a draft reach the
+ * table and the report — a waiting or approved field is not drafted over.
+ */
+export function onlyFields(draft: Draft, fields: Field[]): Draft {
+  const kept = draft.fields.filter((f) => fields.includes(f.field));
+  const cited = new Set(kept.flatMap((f) => f.sentences.flatMap((s) => s.sources)));
+  const answers = draft.answers && Object.fromEntries(Object.entries(draft.answers).filter(([f]) => fields.includes(f as Field)));
+  return { ...draft, fields: kept, sources: draft.sources.filter((s) => cited.has(s.n)), answers };
 }
 
 /** How many artists have a draft that waits — the "n" of the wall's quiet "Drafts · n". */

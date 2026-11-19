@@ -3,7 +3,7 @@
  *
  *   npm run draft -- --artist "Halter" --artist "Kentridge"   drafts for the artists named (surname or name, any case)
  *   npm run draft -- --artists 5                               the first five artists, in the register's order
- *   npm run draft -- --all                                     every artist unless both texts are approved (M2-01)
+ *   npm run draft -- --all                                     every field with no draft or one sent back; waiting and approved fields are left (M2-01)
  *   npm run draft -- --artist "Halter" --report ~/Desktop/Drafts.md   where the readable report lands
  *   npm run draft -- --artist "Halter" --no-db                 the report only; nothing written to the table
  *
@@ -26,7 +26,7 @@ import { sslFor } from "../src/lib/db";
 import { loadAllowlist, resolving } from "../src/lib/drafting/allowlist";
 import { anthropicModel } from "../src/lib/drafting/anthropic";
 import { draftArtist } from "../src/lib/drafting/desk";
-import { answersFor, latestPerField, wantsDraft, type DraftRow } from "../src/lib/drafting/pending";
+import { answersFor, fieldsToDraft, latestPerField, onlyFields, wantsDraft, type DraftRow } from "../src/lib/drafting/pending";
 import { ARTIST_COLUMNS, toArtistInput, WORK_COLUMNS, type ArtistRow, type WorkRow } from "../src/lib/drafting/input";
 import { loadList } from "../src/lib/drafting/list";
 import { renderReport, type RunMeta } from "../src/lib/drafting/report";
@@ -83,8 +83,10 @@ async function main() {
 
     // The minimal input: these columns and no others (rule 5).
     const all = (await db.query<ArtistRow>(`select ${ARTIST_COLUMNS.join(", ")} from artists where collection_id = $1 order by surname, given_name`, [cid])).rows;
-    // --all: every artist unless the newest draft of each field is approved — a field sent back with a note is
-    // drafted again, whatever the other field (M2-01, the review of PR #14). The drafts' statuses never reach the model.
+    // --all: by field, only where there is no draft yet or the newest draft was sent back — a waiting draft is left
+    // for the owner to read, an approved one stands (M2-01, the review of PR #14 and its check of round two). An artist
+    // is drafted when some field of theirs is; the desk writes both texts, and only the wanted fields are kept.
+    // The drafts' statuses never reach the model.
     const latest = every
       ? latestPerField((await db.query<DraftRow>("select id, artist_id, field, status, created_at, decided_at, note from drafts where collection_id = $1 and subject = 'artist'", [cid])).rows)
       : null;
@@ -99,7 +101,7 @@ async function main() {
       : latest
         ? all.filter((a) => wantsDraft(latest.get(a.id)))
         : all.slice(0, count);
-    if (every) console.log(`--all: ${chosen.length} of ${all.length} artist(s) have a field whose newest draft is not approved`);
+    if (every) console.log(`--all: ${chosen.length} of ${all.length} artist(s) have a field with no draft or one sent back; the rest wait or stand approved`);
     const works = (
       await db.query<WorkRow>(`select ${WORK_COLUMNS.join(", ")} from items where collection_id = $1 and source_removed_at is null and artist_id = any($2::uuid[]) order by year nulls last, title`, [
         cid,
@@ -118,7 +120,9 @@ async function main() {
         const earlier = (await db.query<DraftRow>("select id, artist_id, field, status, created_at, decided_at, note from drafts where artist_id = $1 and subject = 'artist'", [artist.id])).rows;
         const answers = answersFor(earlier);
         for (const [field, a] of Object.entries(answers)) if (a) console.log(`  answering the note on the previous ${field === "biography" ? "biography" : "why they matter"}: “${a.note}”`);
-        const draft = await draftArtist(artist, { model, list, sites, supplied: (a) => suppliedSources(contextDir, a), neverName }, { answers });
+        const written = await draftArtist(artist, { model, list, sites, supplied: (a) => suppliedSources(contextDir, a), neverName }, { answers });
+        // under --all, a field that waits or stands approved is not drafted over: only the wanted fields are kept
+        const draft = latest ? onlyFields(written, fieldsToDraft(latest.get(artist.id))) : written;
         drafts.push(draft);
         for (const f of draft.fields) console.log(`  ${f.field}: ${f.sentences.length} sentence(s) kept, ${f.removed.length} removed, ${f.flagged.length} flagged`);
         if (table === "written") {
