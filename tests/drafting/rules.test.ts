@@ -406,8 +406,98 @@ describe("the review of PR #12 — blocker 2: naming the page lets no one's word
     expect(check("In Frieze the weavings are called “the most tender works in South African art”.", FRIEZE, ADAMS)).toEqual([]);
     expect(check("William Feaver has called the drawings “the greatest of the age”.", TATE, KENTRIDGE)).toEqual([]);
     expect(check("In Tate's words, the drawings are “the greatest of the age”.", TATE, KENTRIDGE)).toEqual([]);
-    // the artist named where the passage shows nobody: the page carries it, and the second reading judges the speaker
-    expect(rulesOf("Test Painter told Harbour Gallery that *Blue Field* is “the artist's finest work”.", [1], about)).toEqual([]);
+    // the artist named where the passage shows nobody: no longer carried by the page — removed, failing safe (19 Nov, below)
+    expect(rulesOf("Test Painter told Harbour Gallery that *Blue Field* is “the artist's finest work”.", [1], about)).toContain(7);
+  });
+});
+
+describe("the pre-flight check of 19 Nov — the artist is never given quoted words on the page's say-so alone", () => {
+  const ADAMS: Context = { living: true, artist: { surname: "Adams", givenName: "Igshaan", displayName: "Igshaan Adams" } };
+  // the critic named by surname only, and the critic unnamed: the code cannot follow either back to a name it knows
+  const BY_SURNAME: Source = { n: 1, kind: "web", title: "Igshaan Adams", publisher: "Frieze", link: "https://frieze.example/adams", passage: "Doe argues that the weavings are the most tender works in South African art." };
+  const UNNAMED: Source = { n: 1, kind: "web", title: "Igshaan Adams", publisher: "Frieze", link: "https://frieze.example/adams", passage: "The magazine's critic argues that the weavings are the most tender works in South African art." };
+  const check = (text: string, source: Source) => checkSentence(s(text, [1]), [source], ADAMS).map((v) => v.rule);
+
+  it("removes a quotation given to the artist where the passage shows no one speaking — whichever page is named", () => {
+    for (const src of [BY_SURNAME, UNNAMED]) {
+      expect(check("Adams told Frieze that his weavings are “the most tender works in South African art”.", src)).toContain(7);
+      expect(check("In Frieze, the artist says his weavings are “the most tender works in South African art”.", src)).toContain(7);
+      expect(check("Igshaan Adams has said his weavings are “the most tender works in South African art”.", src)).toContain(7);
+    }
+    expect(attribution("Adams told Frieze that his weavings are", BY_SURNAME, { artist: ADAMS.artist }, "the most tender works in South African art")).toEqual({
+      ok: false,
+      rule: 7,
+      why: "a quotation given to the artist, where the passage shows no one speaking",
+    });
+  });
+
+  it("the page named with no speaker still passes, and so does the artist's own supplied text, and the artist shown speaking", () => {
+    expect(check("In Frieze the weavings are called “the most tender works in South African art”.", BY_SURNAME)).toEqual([]);
+    expect(check("Frieze describes the weavings as “the most tender works in South African art”.", UNNAMED)).toEqual([]);
+    expect(rulesOf("Test Painter wrote: “I painted Blue Field over one winter in a cold studio.”", [2])).toEqual([]);
+    expect(rulesOf("Test Painter told the museum that she paints “what I remember”.", [4], about)).toEqual([]);
+  });
+});
+
+describe("the pre-flight check of 19 Nov — where a living artist lives or works, closer than a city and a country (18 Nov)", () => {
+  const WHERE: Source = {
+    n: 1,
+    kind: "web",
+    title: "Igshaan Adams",
+    publisher: "blank projects",
+    link: "https://blank.example/adams",
+    passage: "His studio is in Bonteheuwel. He works at 12 Example Road, Bonteheuwel. The Bag Factory studios in Johannesburg gave him a residency. He lives and works in Cape Town, South Africa.",
+  };
+  const living: Context = { living: true, artist: { surname: "Adams", givenName: "Igshaan", displayName: "Igshaan Adams" } };
+  const dead: Context = { ...living, living: false };
+  const check = (text: string, ctx: Context = living) => checkSentence(s(text, [1]), [WHERE], ctx);
+
+  it("catches a street address and the studio's whereabouts, in code, under rule 8", () => {
+    for (const t of [
+      "His studio is in Bonteheuwel.",
+      "He works at 12 Example Road, Bonteheuwel.",
+      "She works from her studio in Woodstock.",
+      "The artist keeps a studio at 4 Harbour Street.",
+      "Adams works from a studio in Cape Town.",
+      "The studio was located in Salt River.",
+      "Her address is 221B Baker St.",
+    ]) {
+      const v = check(t);
+      expect(v.map((x) => x.rule), t).toContain(8);
+      expect(v.find((x) => x.rule === 8)?.why, t).toMatch(/closer than a city and a country/);
+    }
+    expect(check("He works at 12 Example Road, Bonteheuwel.").find((x) => x.rule === 8)?.match).toBe("12 Example Road");
+    expect(check("His studio is in Bonteheuwel.").find((x) => x.rule === 8)?.match).toBe("studio is in");
+    // a capitalised place is what the code asks for (the review of PR #14)
+    expect(check("Their studios in Berlin and Cape Town are shared.").map((x) => x.rule)).toContain(8);
+    expect(check("Studio is at 4 Harbour Street.").map((x) => x.rule)).toContain(8);
+  });
+
+  it("does not read a year as a house number, nor a lower-case word as a place — narrow by design (the review of PR #14)", () => {
+    for (const t of ["In 2012 Trafalgar Square hosted his sculpture.", "Her 2019 Times Square billboard drew crowds.", "The studio is in her house.", "By 1994 Church Square had changed."]) {
+      expect(check(t).map((x) => x.rule), t).not.toContain(8);
+    }
+    // what the code does not reach is the brief's and the second reading's
+    for (const t of ["He works at 45 main road.", "She keeps a studio on Bree Street.", "Her Woodstock studio is small.", "Her studio, in Woodstock, is small.", "He lived at 12 Rue de Rivoli."]) {
+      expect(check(t).map((x) => x.rule), t).not.toContain(8);
+    }
+  });
+
+  it("leaves a city and a country, a studio complex by name, a studio with no whereabouts, and a title alone", () => {
+    for (const t of [
+      "He lives and works in Cape Town, South Africa.",
+      "The Bag Factory studios in Johannesburg gave him a residency.",
+      "He works in a small studio.",
+      "He painted *12 Example Road* in 2019.",
+      "In 1994 he moved to Cape Town.",
+    ]) {
+      expect(check(t).map((x) => x.rule), t).not.toContain(8);
+    }
+  });
+
+  it("is a rule for the living: a dead artist's former address is left to the brief and the second reading", () => {
+    expect(check("His studio was in Bonteheuwel.", dead).map((x) => x.rule)).not.toContain(8);
+    expect(check("He worked at 12 Example Road.", dead).map((x) => x.rule)).not.toContain(8);
   });
 });
 

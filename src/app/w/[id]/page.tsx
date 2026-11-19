@@ -1,12 +1,13 @@
 import { headers } from "next/headers";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { loadProvenance, loadWorks } from "@/lib/gallery/load";
+import { loadArtistTexts, loadProvenance, loadWorks } from "@/lib/gallery/load";
 import { neighbours } from "@/lib/gallery/order";
 import { isSaveData } from "@/lib/gallery/picture";
 import { acquisitionLine, tombstoneDetail, tombstoneLine, yearOf } from "@/lib/gallery/tombstone";
 import { isImageId } from "@/lib/images/door";
 import { Plate } from "../../_gallery/Plate";
+import { AboutArtist } from "./AboutArtist";
 import { Glass } from "./Glass";
 import { WalkKeys } from "./WalkKeys";
 
@@ -15,7 +16,9 @@ import { WalkKeys } from "./WalkKeys";
  * beneath; then one line about how it came; then its provenance, as entered, in order. The arrows
  * walk the collection in the wall's order; Escape — or the quiet word in the corner — returns to
  * the wall at the same place. Where a tile set exists the picture opens into the glass (M1-02b).
- * Nothing here says what a work is worth, or where it is.
+ * Beneath the tombstone, quieter, the artist's approved "why they matter", and "About the artist"
+ * for the biography and its Sources line (M2-01). Nothing here says what a work is worth, or where
+ * it is.
  */
 
 export const dynamic = "force-dynamic";
@@ -27,6 +30,7 @@ export default async function SingleWork({ params }: { params: Promise<{ id: str
   const [works, provenance, h] = await Promise.all([loadWorks(), loadProvenance(id), headers()]);
   const work = works.find((w) => w.id === id);
   if (!work) notFound();
+  const texts = await loadArtistTexts(work.artistId);
 
   const { previous, next } = neighbours(works, id);
   const back = `/#w-${work.id}`;
@@ -65,6 +69,7 @@ export default async function SingleWork({ params }: { params: Promise<{ id: str
             </div>
           )}
           {work.sold && <p className="mt-4 font-sans text-[11px] uppercase tracking-[0.2em] text-ink-faint">Formerly in the collection</p>}
+          <AboutArtist artist={work.artist} whyTheyMatter={texts.whyTheyMatter} biography={texts.biography} />
         </figcaption>
       </figure>
 

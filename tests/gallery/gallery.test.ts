@@ -22,6 +22,7 @@ const pic = (width: number | null, height: number | null): Picture => ({
 function work(id: string, over: Partial<Work> = {}): Work {
   return {
     id,
+    artistId: null,
     artist: "Pat Painter",
     title: `Work ${id}`,
     year: 2020,
@@ -175,7 +176,7 @@ describe("what a row may carry onto a page", () => {
   it("only the gallery's fields travel; value, price, location and ownership do not", () => {
     const w = toWork(row, picRow);
     expect(Object.keys(w).sort()).toEqual(
-      ["acquiredFrom", "acquiredOn", "artist", "dimensions", "edition", "id", "medium", "picture", "sold", "title", "year", "yearText"].sort(),
+      ["acquiredFrom", "acquiredOn", "artist", "artistId", "dimensions", "edition", "id", "medium", "picture", "sold", "title", "year", "yearText"].sort(),
     );
     const text = JSON.stringify(w);
     for (const leak of ["123456", "654321", "Hilltop", "dining", "note", "Price"]) expect(text).not.toContain(leak);

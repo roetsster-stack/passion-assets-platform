@@ -142,6 +142,22 @@ export const PRIVATE_WORDS = [
 /** A material, not a mother: skipped by the private-life check. */
 const NOT_PRIVATE = /mother-of-pearl/gi;
 
+/**
+ * Where a living artist lives or works, closer than a city and a country — Michael, 18 Nov: "city and
+ * country only, never a studio, a neighbourhood or an address". In code, narrowly (the pre-flight check
+ * of 19 Nov; the review of PR #14): a street address — a number that is not a year (1800–2099), then
+ * one to four capitalised words, then Road, Street, Avenue and their kin — and the studio's whereabouts
+ * — "studio is in", "her studio in", "a studio at", followed by a capitalised place or a number, so
+ * "the studio is in her house" is not caught. "The Bag Factory studios in Johannesburg" is neither, nor
+ * "2012 Trafalgar Square". Narrow by design: "45 main road", "a studio on Bree Street", "Her Woodstock
+ * studio", "Her studio, in Woodstock" and "12 Rue de Rivoli" pass here and are the brief's and the
+ * second reading's, which name a neighbourhood too.
+ */
+export const STREET_ADDRESS =
+  /(?<![\p{L}\p{N}])(?!(?:1[89]|20)\d{2}(?![\p{N}]))\d{1,5}[A-Za-z]?(?:[-–]\d{1,5})?\s+(?:\p{Lu}[\p{L}'’.-]*\s+){1,4}(?:Road|Rd\.?|Street|St\.?|Avenue|Ave\.?|Lane|Drive|Dr\.?|Boulevard|Crescent|Close|Terrace|Place|Square|Way)(?![\p{L}])/gu;
+export const STUDIO_WHEREABOUTS =
+  /(?<![\p{L}])(?:[Ss]tudios?\s+(?:(?:is|was|are|were)(?:\s+(?:located|situated|based))?|lies|sits|stands|located|situated|based)\s+(?:in|at|on)|(?:[Hh]is|[Hh]er|[Tt]heir|[Tt]he artist['’]s|[Aa]|[Tt]he)\s+studios?\s+(?:in|at))\s+(?=[\p{Lu}\p{N}])/gu;
+
 /** Rule 7: the first person, which is never the desk's. ("us" lower-case only: the US is a place.) */
 const VOICE = /(?<![\w'’])(?:I|I'm|I’m|I've|I’ve|my|My|mine|myself|me|Me|we|We|our|Our|ours|us)(?![\w])/g;
 
@@ -412,8 +428,11 @@ export type AttributionResult = { ok: true } | { ok: false; rule: 3 | 7; why: st
  * passage shows who spoke them — the artist, by their own name, or another person — the sentence
  * may give them to nobody else (rule 7); it may name that speaker, or name the page and no speaker.
  * Where the passage shows nobody, the page must be named (rule 3), and a speaker the sentence
- * names is left to the second reading. Naming the artist, or the artist's text, as mere subject is
- * not attribution.
+ * names is left to the second reading — except the artist: quoted words given to the artist where
+ * the passage shows no one speaking are removed (rule 7), whichever page is named, because the
+ * code cannot follow "Doe argues" or "the magazine's critic" back to a name it knows; it fails safe
+ * (the pre-flight check of 19 Nov). Naming the artist, or the artist's text, as mere subject is not
+ * attribution.
  */
 export function attribution(textOutsideQuotes: string, source: Pick<Source, "kind" | "publisher" | "passage">, ctx: Attribution = {}, needle: string | null = null): AttributionResult {
   const pageNames = namesOf(source.publisher);
@@ -421,7 +440,10 @@ export function attribution(textOutsideQuotes: string, source: Pick<Source, "kin
   const shown = statedArtist(source) ? [THE_ARTIST] : speakersOf(source.passage, needle).map((n) => (isArtist(n, ctx.artist) ? THE_ARTIST : n));
   const claimed = claimedSpeakers(textOutsideQuotes, ctx).filter((c) => c === THE_ARTIST || !pageNames.some((n) => sameName(n, c)));
   const unnamed = { ok: false as const, rule: 3 as const, why: `a quotation whose source (${source.publisher}) is not named in the sentence` };
-  if (shown.length === 0) return page ? { ok: true } : unnamed;
+  if (shown.length === 0) {
+    if (claimed.includes(THE_ARTIST)) return { ok: false, rule: 7, why: "a quotation given to the artist, where the passage shows no one speaking" };
+    return page ? { ok: true } : unnamed;
+  }
   const wrong = claimed.find((c) => !shown.some((s) => sameName(s, c)));
   if (wrong) return { ok: false, rule: 7, why: `a quotation given to ${wrong}, where the passage shows ${shown.join(" or ")} speaking` };
   if (claimed.length > 0 || page) return { ok: true };
@@ -546,6 +568,10 @@ export function checkSentence(s: Sentence, sources: Source[], ctx: Context): Vio
   if (ctx.living) {
     const personal = blank(text, [...own, ...titles]).replace(NOT_PRIVATE, (m) => " ".repeat(m.length));
     for (const m of hits(PRIVATE, personal)) v.push({ rule: 8, why: "a living person's private life, not in their own words", match: m });
+    // Where they live and work, closer than a city and a country — in anyone's words, the artist's included (18 Nov).
+    const where = blank(text, titles);
+    for (const m of hits(STREET_ADDRESS, where)) v.push({ rule: 8, why: "where a living artist lives or works, closer than a city and a country: a street address", match: m });
+    for (const m of hits(STUDIO_WHEREABOUTS, where)) v.push({ rule: 8, why: "where a living artist lives or works, closer than a city and a country: the studio's whereabouts", match: m.trim() });
   }
 
   for (const name of ctx.neverName ?? []) {

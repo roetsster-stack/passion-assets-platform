@@ -10,7 +10,8 @@ import type { ArtistInput, Field, Sentence, Source, Usage } from "./types";
 export type SearchRequest = { artist: ArtistInput; sites: Site[] };
 export type SearchAnswer = { sources: Omit<Source, "n">[]; usage: Usage };
 
-export type DraftRequest = { artist: ArtistInput; sources: Source[]; list: ProhibitionList };
+/** `notes`: by field, the owner's note on the rejected previous draft, which this draft answers — still under the list (M2-01). */
+export type DraftRequest = { artist: ArtistInput; sources: Source[]; list: ProhibitionList; notes?: Partial<Record<Field, string>> };
 export type DraftAnswer = { biography: Sentence[]; whyTheyMatter: Sentence[] };
 
 export type ReadingRequest = { artist: ArtistInput; list: ProhibitionList; field: Field; sentences: Sentence[]; sources: Source[] };

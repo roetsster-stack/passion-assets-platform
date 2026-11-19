@@ -40,6 +40,8 @@ export type Picture = {
 
 export type Work = {
   id: string;
+  /** The artist's id, for the approved texts beside the work (M2-01); null when the record names no artist. */
+  artistId: string | null;
   artist: string | null;
   title: string | null;
   /** The parsed year, when the text yields one. */
