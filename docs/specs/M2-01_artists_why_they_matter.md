@@ -241,6 +241,13 @@ as today, and `/drafts` is not there. Three things to know first (_the review of
    has to go in a new migration; `db push` never re-runs a file. The second round's change to the view
    (the cited passages only) was made in this file because it had not yet been applied.
 
+_Applied 19 Nov 2026, on Michael's yes, from this branch (`db push` reads the working tree, so the branch
+was checked out): `migration list` showed six applied through `20261118180000` and this one pending;
+`db push --dry-run` listed exactly `20261119120000_approvals.sql`; `db push --yes` applied it; the list
+then showed seven. A read-only check found the four columns, the function (execute to `authenticated`
+and `service_role`, not `anon`) and the view (`security_barrier`, select to `authenticated`), and nothing
+changed in the data: 33 artists, 66 drafts all still waiting, no audit rows. The file is fixed from here on._
+
 **Not done, and said so.** No component tests in a browser-like environment (vitest runs in node; the
 screens are proved through the database and the pure code, and judged on the preview). The tombstone
 on the single work is a fixed caption today, not "on intent" as the spec assumed; the texts follow it.
