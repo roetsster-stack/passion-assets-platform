@@ -14,12 +14,16 @@ export const FIELDS: Field[] = ["biography", "why_they_matter"];
  */
 export type Source = {
   n: number;
-  kind: "supplied" | "web";
+  /** "book" (M2-04c): a passage from a book in the owner's library, its title the Literature form with its page. */
+  kind: "supplied" | "web" | "book";
   title: string;
   publisher: string;
   link: string | null;
   passage: string;
+  /** A web or supplied source's read date. A book carries none: a book does not change; the page is its address. */
   readAt?: string;
+  /** A book's whole citation, for the owner's screen: author, title, publisher, year. */
+  book?: string;
 };
 
 /** One sentence and the sources it rests on. */

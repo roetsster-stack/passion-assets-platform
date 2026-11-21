@@ -385,7 +385,8 @@ const isArtist = (name: string, artist?: ArtistName) => {
   return full.some((f) => name === f || name.endsWith(" " + f)) || (surname !== null && name === surname);
 };
 
-const statedArtist = (source: Pick<Source, "kind" | "publisher">) => source.kind === "supplied" && /\(the artist\)/i.test(source.publisher);
+/** The artist's own words by their source: a supplied text, or a book by the artist (M2-04c), whose author line says "(the artist)". */
+const statedArtist = (source: Pick<Source, "kind" | "publisher">) => (source.kind === "supplied" || source.kind === "book") && /\(the artist\)/i.test(source.publisher);
 
 /** Two names for one person: the same, or one the other with a word swept in before it ("In Frieze Hilton Als", "Hilton Als"). */
 const sameName = (a: string, b: string) => a === b || a.endsWith(" " + b) || b.endsWith(" " + a);

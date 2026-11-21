@@ -62,7 +62,9 @@ export function dayOf(iso: string): string | null {
 }
 
 /** "read 19 Nov 2026": the date the desk read a source — its own, or failing that the draft's. */
-export function readOn(source: Pick<Source, "readAt">, draftCreatedAt: string): string | null {
+export function readOn(source: Pick<Source, "readAt"> & Partial<Pick<Source, "kind">>, draftCreatedAt: string): string | null {
+  // a book carries no read date: it does not change, and its page is its address (M2-04c)
+  if (source.kind === "book") return null;
   const day = dayOf(source.readAt ?? draftCreatedAt);
   return day ? `read ${day}` : null;
 }
@@ -78,10 +80,12 @@ const ARTIST_MARKER = /\s*\(the artist\)\s*$/i;
  * the marker itself is the desk's and is never shown (the review of PR #14).
  */
 export const publisherOf = (s: Pick<Source, "kind" | "publisher">): string =>
-  s.kind === "supplied" ? (ARTIST_MARKER.test(s.publisher) ? "the artist's own words" : s.publisher.replace(ARTIST_MARKER, "")) : s.publisher;
+  s.kind === "supplied" || s.kind === "book" ? (ARTIST_MARKER.test(s.publisher) ? "the artist's own words" : s.publisher.replace(ARTIST_MARKER, "")) : s.publisher;
 
 /** "Title, Publisher" — or the title alone where it already says whose words they are ("Dan Halter — in his own words"). */
 export function sourceLabel(s: Pick<Source, "kind" | "title" | "publisher">): string {
+  // a book is named as a catalogue's Literature names it, and the citation already says whose book it is (M2-04c)
+  if (s.kind === "book") return s.title;
   const who = publisherOf(s);
   if (who === "the artist's own words" && /own words/i.test(s.title)) return s.title;
   return who ? `${s.title}, ${who}` : s.title;
@@ -107,7 +111,7 @@ export function commonTitle(titles: string[]): string {
 
 /** One page, not one passage: a web source by its link (failing that its title and publisher), a supplied text by its author. */
 export const pageKey = (s: Pick<Source, "kind" | "link" | "title" | "publisher">): string =>
-  s.kind === "supplied" ? `supplied|${s.publisher}` : `web|${s.link ?? `${s.title}|${s.publisher}`}`;
+  s.kind === "book" ? `book|${s.title}` : s.kind === "supplied" ? `supplied|${s.publisher}` : `web|${s.link ?? `${s.title}|${s.publisher}`}`;
 
 export function toArtistTexts(rows: unknown[]): ArtistTexts {
   const texts = rows.map(toApprovedText).filter((t): t is ApprovedText => !!t);
@@ -157,7 +161,7 @@ export function combine(texts: ApprovedText[]): { sources: Source[]; shown: Show
         if (!numbers.has(k)) {
           numbers.set(k, pages.length + 1);
           // every passage of the page the text carries, cited or not, names the page
-          pages.push({ source: { ...src, n: pages.length + 1, readAt: src.readAt ?? t.createdAt }, titles: t.sources.filter((x) => pageKey(x) === k).map((x) => x.title) });
+          pages.push({ source: { ...src, n: pages.length + 1, readAt: src.kind === "book" ? undefined : (src.readAt ?? t.createdAt) }, titles: t.sources.filter((x) => pageKey(x) === k).map((x) => x.title) });
         }
         return [numbers.get(k)!];
       });

@@ -8,14 +8,14 @@
  *   npm run draft -- --artist "Halter" --no-db                 the report only; nothing written to the table
  *
  * For each artist: a short biography and one sentence on why they matter, every sentence tied to
- * sources a person can check — Michael's supplied texts first, then the model's search of the
- * allowlisted sites — checked by rule and read a second time against the prohibition list. The
+ * sources a person can check — Michael's supplied texts first, then the passages filed from his books
+ * (context/library/, M2-04c), then the model's search of the allowlisted sites — checked by rule and read a second time against the prohibition list. The
  * desk refuses to run without the list. Drafts go to the `drafts` table (owner-only) and to a report.
  * Where the owner rejected the previous draft of a field with a note, the next draft is written to
  * answer it, and records which draft it answers (M2-01).
  *
  * Needs, in ~/curator/.env: ANTHROPIC_API_KEY, DATABASE_URL (and DATABASE_SSL_CA), CURATOR_CONTEXT_DIR
- * (the project folder's context/, where artists/<Surname>_<Given>.md live). Optional:
+ * (the project folder's context/, where artists/<Surname>_<Given>.md and library/<book>/ live). Optional:
  * CURATOR_DRAFT_MODEL, CURATOR_DRAFTS_DIR, CURATOR_COLLECTION_NAME.
  */
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -30,6 +30,7 @@ import { answersFor, fieldsToDraft, latestPerField, onlyFields, wantsDraft, type
 import { ARTIST_COLUMNS, toArtistInput, WORK_COLUMNS, type ArtistRow, type WorkRow } from "../src/lib/drafting/input";
 import { loadList } from "../src/lib/drafting/list";
 import { renderReport, type RunMeta } from "../src/lib/drafting/report";
+import { librarySources } from "../src/lib/drafting/library";
 import { suppliedSources } from "../src/lib/drafting/sources";
 import { fold } from "../src/lib/drafting/sources";
 import type { Draft } from "../src/lib/drafting/types";
@@ -120,7 +121,7 @@ async function main() {
         const earlier = (await db.query<DraftRow>("select id, artist_id, field, status, created_at, decided_at, note from drafts where artist_id = $1 and subject = 'artist'", [artist.id])).rows;
         const answers = answersFor(earlier);
         for (const [field, a] of Object.entries(answers)) if (a) console.log(`  answering the note on the previous ${field === "biography" ? "biography" : "why they matter"}: “${a.note}”`);
-        const written = await draftArtist(artist, { model, list, sites, supplied: (a) => suppliedSources(contextDir, a), neverName }, { answers });
+        const written = await draftArtist(artist, { model, list, sites, supplied: (a) => [...suppliedSources(contextDir, a), ...librarySources(contextDir, a)], neverName }, { answers });
         // under --all, a field that waits or stands approved is not drafted over: only the wanted fields are kept
         const draft = latest ? onlyFields(written, fieldsToDraft(latest.get(artist.id))) : written;
         drafts.push(draft);
