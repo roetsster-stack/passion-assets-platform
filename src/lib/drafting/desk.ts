@@ -13,6 +13,7 @@
  */
 import type { Site } from "./allowlist";
 import { isLiving } from "./input";
+import { trimPassage } from "./library";
 import type { ProhibitionList } from "./list";
 import { DeskError, type Model } from "./model";
 import { checkRules, LIMITS, trimToLength, wordCount } from "./rules";
@@ -69,9 +70,10 @@ export async function draftArtist(artist: ArtistInput, deps: DeskDeps, prior: Pr
     web = found.sources;
     if (web.length === 0) notes.push("the search found nothing on the allowed sites");
   }
-  // Every source carries the date the desk read it — shown to every reader of an approved text (M2-01).
+  // Every source carries the date the desk read it — shown to every reader of an approved text (M2-01) —
+  // except a book's: a book does not change; its page is its address (M2-04c).
   const readAt = (prior.now ?? (() => new Date()))().toISOString();
-  const sources = number([...supplied, ...web]).map((s) => ({ ...s, readAt }));
+  const sources = number([...supplied, ...web]).map((s) => (s.kind === "book" ? s : { ...s, readAt }));
 
   let model = deps.model.name;
   const fields: FieldDraft[] = [];
@@ -174,5 +176,18 @@ export async function draftArtist(artist: ArtistInput, deps: DeskDeps, prior: Pr
   }
 
   const cited = new Set(fields.flatMap((f) => f.sentences.flatMap((s) => s.sources)));
-  return { artist, listVersion: deps.list.version, model, sources: sources.filter((s) => cited.has(s.n)), fields, usage, notes, answers };
+  return { artist, listVersion: deps.list.version, model, sources: trimBooks(sources.filter((s) => cited.has(s.n)), fields), fields, usage, notes, answers };
+}
+
+/**
+ * M2-04c, the trade-off Michael approved on 21 Nov: of a book, the platform keeps and shows only the
+ * sentences the text cites — never more of a book than the quotation itself. Done here, after every check
+ * has read the whole passage, so the stored draft (and the view every member reads) holds the trimmed one.
+ */
+export function trimBooks(sources: Source[], fields: FieldDraft[]): Source[] {
+  return sources.map((s) => {
+    if (s.kind !== "book") return s;
+    const citing = fields.flatMap((f) => f.sentences.filter((x) => x.sources.includes(s.n)).map((x) => x.text));
+    return { ...s, passage: trimPassage(s.passage, citing) };
+  });
 }
