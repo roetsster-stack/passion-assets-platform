@@ -8,6 +8,9 @@ page on a site that is (`shop.`, `store.`): the desk refuses those addresses. A 
 the desk accepts in a sentence ("the Met", "MoMA", "C&", "SAHO"); a longer one counts whole and by its own distinctive
 words ("Zeitz Museum of Contemporary Art Africa", "Zeitz Museum"). Names are matched as written, capitals included._
 
+## The artists' own sites (the artist's own words, about their own works)
+- willemboshoff.com — Willem Boshoff
+
 ## The artists' galleries (from the register's provenance, and their peers)
 - goodman-gallery.com — Goodman Gallery
 - stevenson.info — Stevenson
