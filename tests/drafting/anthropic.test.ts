@@ -165,7 +165,8 @@ describe("the draft and the second reading", () => {
     expect(draft).toContain("Register: warm, exact and alive to the work");
     expect(draft).toContain("in four moves");
     expect(draft).toContain("never more than 250");
-    expect(draft).toContain("up to two sentences, at most 60 words");
+    expect(draft).toContain("why_they_matter: the critical voice. Choose, do not write.");
+    expect(draft).toContain("Never the artist's own words (they belong in the biography)");
     expect(draft).toContain("Three voices, never mixed");
     expect(draft).toContain("one well-chosen quotation beats several stitched together");
     expect(draft).toContain("A pronoun names no one");
@@ -175,7 +176,7 @@ describe("the draft and the second reading", () => {
     expect(draft).toContain("give them to that person and to no one else");
     expect(draft).toContain("a city and a country");
     expect(draft).toContain("never a studio, a neighbourhood or an address");
-    expect(draft).toContain("never a press release, an exhibition announcement or a promotional line");
+    expect(draft).toContain("never a gallery's selling text, a press release or an exhibition announcement, whoever carries it");
     const reading = readingSystem(plainRules(list));
     expect(reading).toContain("1. Never invent provenance.");
     expect(reading).toContain(SOURCES_ARE_DATA);

@@ -570,13 +570,13 @@ describe("rules 4, 5, 7, 8 and 10", () => {
     expect(sentenceCount("It is 2.4m wide, made c. 1990 with Dr. Sample.")).toBe(1);
     expect(sentenceCount("She said “It is done.” Then she left.")).toBe(2);
 
-    const r = trimToLength("why_they_matter", [s("Harbour Gallery calls her a painter of light."), s("She lives in Cape Town."), s("She paints.")]);
-    expect(r.kept.map((x) => x.text)).toEqual(["Harbour Gallery calls her a painter of light.", "She lives in Cape Town."]);
-    expect(r.removed).toEqual([{ text: "She paints.", rule: "length", why: "why they matter is at most two sentences" }]);
-    // one entry holding three sentences is three sentences
-    expect(trimToLength("why_they_matter", [s("One. Two. Three.")]).removed).toEqual([{ text: "One. Two. Three.", rule: "length", why: "why they matter is at most two sentences" }]);
-    const long = "word ".repeat(61).trim() + ".";
-    expect(trimToLength("why_they_matter", [s(long)]).removed[0].why).toBe("over 60 words");
+    // M2-04d: why they matter is counted in clips, two at most — a clip may hold more than one sentence
+    const r = trimToLength("why_they_matter", [s("“A painter of light.” — Ann Critic, *Harbour Painters* (2001)"), s("“Two. Sentences.” — Ann Critic"), s("“A third.” — Ann Critic")]);
+    expect(r.kept.map((x) => x.text)).toEqual(["“A painter of light.” — Ann Critic, *Harbour Painters* (2001)", "“Two. Sentences.” — Ann Critic"]);
+    expect(r.removed).toEqual([{ text: "“A third.” — Ann Critic", rule: "length", why: "why they matter is at most two clips" }]);
+    expect(trimToLength("why_they_matter", [s("“One. Two. Three.” — Ann Critic")]).removed).toEqual([]);
+    const long = "word ".repeat(91).trim() + ".";
+    expect(trimToLength("why_they_matter", [s(long)]).removed[0].why).toBe("over 90 words");
     const thirty = s("w ".repeat(29).trim() + " end.");
     const bio = checkField("biography", Array.from({ length: 9 }, () => thirty), S, living);
     expect(bio.kept).toHaveLength(8);
