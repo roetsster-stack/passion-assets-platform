@@ -41,13 +41,16 @@ export function DraftText({ sentences, sources, createdAt }: { sentences: Senten
                 <span className="mr-2 text-ink-faint">{s.n}</span>
                 {safeLink(s.link) ? (
                   <a href={safeLink(s.link)!} target="_blank" rel="noopener noreferrer" className="underline decoration-ink-faint underline-offset-4 hover:decoration-ink">
-                    {sourceLabel(s)}
+                    {segments(sourceLabel(s)).map((g, j) => (g.italic ? <i key={j}>{g.text}</i> : <span key={j}>{g.text}</span>))}
                   </a>
                 ) : (
                   sourceLabel(s)
                 )}
                 {readOn(s, createdAt) && <span className="text-ink-faint">, {readOn(s, createdAt)}</span>}
               </p>
+              {s.kind === "book" && s.book && (
+                <p className="text-ink-faint">{segments(s.book).map((g, j) => (g.italic ? <i key={j}>{g.text}</i> : <span key={j}>{g.text}</span>))}</p>
+              )}
               <blockquote className="mt-1 font-serif text-[15px] italic text-ink-muted">“{s.passage}”</blockquote>
             </li>
           ))}

@@ -76,7 +76,7 @@ function Sources({ sources }: { sources: Source[] }) {
           <span className="text-ink-muted">{s.n}</span>{" "}
           {s.link ? (
             <a href={s.link} target="_blank" rel="noopener noreferrer" className="underline decoration-ink-faint underline-offset-4 transition-colors hover:text-ink-muted">
-              {sourceLabel(s)}
+              {segments(sourceLabel(s)).map((g, j) => (g.italic ? <i key={j}>{g.text}</i> : <span key={j}>{g.text}</span>))}
             </a>
           ) : (
             sourceLabel(s)

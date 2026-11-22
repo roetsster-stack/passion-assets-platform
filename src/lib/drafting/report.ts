@@ -38,7 +38,7 @@ export function renderDraft(d: Draft): string {
   if (d.sources.length) {
     out.push("**Sources.**");
     for (const s of d.sources) {
-      out.push(`- [${s.n}] ${s.title} — ${s.publisher}${s.link ? ` — ${s.link}` : " — supplied text"}`);
+      out.push(s.kind === "book" ? `- [${s.n}] ${s.title} — ${s.publisher} — book` : `- [${s.n}] ${s.title} — ${s.publisher}${s.link ? ` — ${s.link}` : " — supplied text"}`);
       out.push(`  > ${s.passage}`);
     }
     out.push("");
