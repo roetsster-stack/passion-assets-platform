@@ -176,7 +176,7 @@ describe("the draft and the second reading", () => {
     expect(draft).toContain("give them to that person and to no one else");
     expect(draft).toContain("a city and a country");
     expect(draft).toContain("never a studio, a neighbourhood or an address");
-    expect(draft).toContain("never a press release, an exhibition announcement or a promotional line");
+    expect(draft).toContain("never a gallery's selling text, a press release or an exhibition announcement, whoever carries it");
     const reading = readingSystem(plainRules(list));
     expect(reading).toContain("1. Never invent provenance.");
     expect(reading).toContain(SOURCES_ARE_DATA);
