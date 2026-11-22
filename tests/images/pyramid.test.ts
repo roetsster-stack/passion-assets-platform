@@ -24,12 +24,14 @@ import {
 } from "@/lib/images/pyramid";
 import { tiles } from "@/lib/images/render";
 
-describe("the ≥ 4,000 px rule", () => {
-  it("a source of 4,000 px or more on its long side gets a pyramid; anything less has the ladder's 4,320 rung already", () => {
-    expect(TILES_MIN_LONG_SIDE).toBe(4000);
+describe("the ≥ 3,400 px rule", () => {
+  it("a source of 3,400 px or more on its long side gets a pyramid; anything less has the ladder's 4,320 rung already", () => {
+    expect(TILES_MIN_LONG_SIDE).toBe(3400);
     expect(needsTiles(5375)).toBe(true);
     expect(needsTiles(4000)).toBe(true);
-    expect(needsTiles(3999)).toBe(false);
+    expect(needsTiles(3483)).toBe(true);
+    expect(needsTiles(3400)).toBe(true);
+    expect(needsTiles(3399)).toBe(false);
     expect(needsTiles(null)).toBe(false);
     expect(needsTiles(undefined)).toBe(false);
   });

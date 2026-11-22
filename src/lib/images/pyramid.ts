@@ -2,14 +2,19 @@
  * The tile pyramid (M1-02b): Deep Zoom (DZI) addressing, as sharp cuts it and OpenSeadragon reads
  * it — pure. Level 0 is one pixel; each level doubles; the top level is the source itself. Tiles
  * are 254 px with 1 px of overlap on every inner edge, so a tile is 256 px across in the middle
- * of the picture. Only a source of 4,000 px or more on its long side gets a pyramid: below that
+ * of the picture. Only a source of 3,400 px or more on its long side gets a pyramid: below that
  * the 4,320 rung of the ladder already shows every pixel.
+ *
+ * The line was 4,000 px until 22 Nov 2026. Michael lowered it to 3,400 so that five works he holds
+ * important, photographed just under 4,000 (Hodgins, Grose, Ruga, Botes, Blom: 3,483–3,806 px),
+ * open into the glass. Parked: back to 4,000 once they are rephotographed. A run never removes a
+ * tile set, so raising the line again stops new pyramids below it but leaves these in place.
  */
 
 export const TILE_SIZE = 254;
 export const TILE_OVERLAP = 1;
 export const TILE_JPEG_QUALITY = 85;
-export const TILES_MIN_LONG_SIDE = 4000;
+export const TILES_MIN_LONG_SIDE = 3400;
 
 /** A tile address lives thirty minutes: a zoom session lasts. */
 export const TILE_URL_SECONDS = 1800;

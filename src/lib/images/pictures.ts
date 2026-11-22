@@ -215,7 +215,7 @@ export type TileSource = SourceToCut & { width: number; height: number; label: s
 
 /**
  * The picture sources large enough for the glass: each work's picture — master or Airtable
- * photograph, whichever hangs — when it is 4,000 px or more on its long side.
+ * photograph, whichever hangs — when it is 3,400 px or more on its long side.
  */
 export async function tileSources(db: Client, collectionId: string): Promise<TileSource[]> {
   const res = await db.query<SourceToCut & { width: number; height: number; title: string | null; artist: string | null }>(
