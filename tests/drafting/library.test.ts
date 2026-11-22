@@ -146,7 +146,7 @@ describe("the desk with books", () => {
     const { model, calls } = standIn({
       answer: {
         biography: [{ text: "Of *Blue Field*, Test Painter has written: “The blue is the blue of the bay in July, which I wanted to keep.”", sources: [1] }],
-        whyTheyMatter: [{ text: "Ann Critic writes that “Her blues are taken from the bay in winter.”", sources: [3] }],
+        whyTheyMatter: [{ text: "“Her blues are taken from the bay in winter.” — Ann Critic, *Harbour Painters* (2001)", sources: [3] }],
       },
     });
     const draft = await draftArtist(
@@ -158,7 +158,7 @@ describe("the desk with books", () => {
     expect(calls.draft[0].sources.map((s) => s.kind)).toEqual(["supplied", "supplied", "book", "book", "book"]);
     expect(calls.draft[0].sources[2].passage).toContain("She works slowly");
     const why = draft.fields.find((f) => f.field === "why_they_matter")!;
-    expect(why.text).toBe("Ann Critic writes that “Her blues are taken from the bay in winter.”");
+    expect(why.text).toBe("“Her blues are taken from the bay in winter.” — Ann Critic, *Harbour Painters* (2001)");
     const book = draft.sources.find((s) => s.kind === "book")!;
     expect(book.title).toBe("Critic, *Harbour Painters* (2001), p. 12");
     expect(book.readAt).toBeUndefined();

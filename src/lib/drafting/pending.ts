@@ -69,6 +69,16 @@ export function fieldsToDraft(latest: Partial<Record<Field, Pick<DraftRow, "stat
   });
 }
 
+/**
+ * M2-04d · `--field why_they_matter` (or `biography`): of every draft, only that field reaches the table and the
+ * report, so a new "why they matter" never touches an approved biography. Anything else named is refused.
+ */
+export function fieldOption(value: string | undefined): Field | null {
+  if (value === undefined) return null;
+  if ((FIELDS as string[]).includes(value)) return value as Field;
+  throw new Error(`--field must be one of: ${FIELDS.join(", ")}`);
+}
+
 /** For `--all`: an artist is drafted when some field of theirs is. */
 export const wantsDraft = (latest: Partial<Record<Field, Pick<DraftRow, "status">>> | undefined): boolean => fieldsToDraft(latest).length > 0;
 

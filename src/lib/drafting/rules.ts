@@ -47,8 +47,13 @@ import { NOT_ENOUGH, type Field, type Removal, type Sentence, type Source } from
 
 export const LIMITS: Record<Field, { words: number; sentences: number | null }> = {
   biography: { words: 250, sentences: null },
-  why_they_matter: { words: 60, sentences: 2 },
+  // M2-04d: one clip, two at most, each with its attribution line — about 60 words of quotation; the clips are counted
+  // by `checkClips`, not as grammatical sentences (a clip may hold two)
+  why_they_matter: { words: 90, sentences: null },
 };
+
+/** M2-04d: at most this many clips in "why they matter". */
+export const MAX_CLIPS = 2;
 
 /** This many words of a source in a row, outside quotation marks, are lifted text (rule 7, 18 Nov). */
 export const LIFT_WORDS = 10;
@@ -602,15 +607,63 @@ export function sentenceCount(text: string): number {
 const label = (field: Field) => (field === "why_they_matter" ? "why they matter" : field);
 const inWords = (n: number) => ["no", "one", "two", "three", "four", "five"][n] ?? String(n);
 
-/** The sentences that break a rule leave; the rest stay, in order. */
+/** The sentences that break a rule leave; the rest stay, in order. "Why they matter" must then be clips (M2-04d). */
 export function checkRules(field: Field, sentences: Sentence[], sources: Source[], ctx: Context): { kept: Sentence[]; removed: Removal[] } {
-  void field;
   const kept: Sentence[] = [];
   const removed: Removal[] = [];
   for (const s of sentences) {
     const vs = checkSentence(s, sources, ctx);
     if (vs.length === 0) kept.push(s);
     else removed.push({ text: s.text, rule: vs[0].rule, why: vs.map((x) => `rule ${x.rule}: ${x.why}${x.match ? ` (“${x.match}”)` : ""}`).join("; ") });
+  }
+  if (field !== "why_they_matter") return { kept, removed };
+  const clips = checkClips(kept, sources, ctx);
+  return { kept: clips.kept, removed: [...removed, ...clips.removed] };
+}
+
+/**
+ * M2-04d · A clip: one quotation, then an em dash and its attribution — “…” — Sue Williamson, *South African Art
+ * Now* (2009). Null when the text is not that shape.
+ */
+export function parseClip(text: string): { quote: string; attribution: string } | null {
+  const m = text.trim().match(/^[“"]([^“”"]{3,})[”"]\s*[—–]\s*([^“”"]{2,})$/);
+  if (!m) return null;
+  const attribution = m[2].trim().replace(/\.$/, "");
+  return attribution ? { quote: m[1].trim(), attribution } : null;
+}
+
+/**
+ * M2-04d · "Why they matter" is the critical voice, chosen and never written: each sentence a clip (one verbatim
+ * quotation and its attribution, nothing else of the desk's), never the artist's own words — those belong in the
+ * biography. Two at most, counted with the lengths, after the second reading (`trimToLength`), so that a clip the
+ * reading removes makes room for the next. The quotation itself has passed `checkSentence`: verbatim in a cited
+ * passage and attributed to the right speaker.
+ */
+export function checkClips(sentences: Sentence[], sources: Source[], ctx: Context): { kept: Sentence[]; removed: Removal[] } {
+  const kept: Sentence[] = [];
+  const removed: Removal[] = [];
+  for (const s of sentences) {
+    if (s.text.trim() === NOT_ENOUGH) {
+      kept.push(s);
+      continue;
+    }
+    const clip = parseClip(s.text);
+    if (!clip) {
+      removed.push({ text: s.text, rule: 3, why: "rule 3: why they matter is a clip — one quotation and its attribution, no words of the desk's own" });
+      continue;
+    }
+    if (wordCount(clip.attribution) > 30) {
+      removed.push({ text: s.text, rule: 3, why: "rule 3: the attribution line says who and where, nothing more" });
+      continue;
+    }
+    const cited = s.sources.map((n) => sources.find((x) => x.n === n)).filter((x): x is Source => !!x);
+    const lead = normalise(clip.attribution.split(/,|\bquoted in\b/i)[0].trim());
+    const byTheArtist = (cited.length > 0 && cited.every((x) => statedArtist(x))) || isArtist(lead, ctx.artist) || /^the artist$/i.test(lead);
+    if (byTheArtist) {
+      removed.push({ text: s.text, rule: 3, why: "rule 3: the artist's own words belong in the biography; why they matter is a critic's, curator's or writer's" });
+      continue;
+    }
+    kept.push(s);
   }
   return { kept, removed };
 }
@@ -621,6 +674,13 @@ export function trimToLength(field: Field, sentences: Sentence[]): { kept: Sente
   const kept = [...sentences];
   const removed: Removal[] = [];
   const text = () => kept.map((s) => s.text).join(" ");
+  if (field === "why_they_matter") {
+    // M2-04d: clips, not grammatical sentences — a clip may hold two
+    while (kept.filter((k) => k.text.trim() !== NOT_ENOUGH).length > MAX_CLIPS) {
+      const extra = kept.pop()!;
+      removed.push({ text: extra.text, rule: "length", why: `why they matter is at most ${inWords(MAX_CLIPS)} clips` });
+    }
+  }
   if (limit.sentences !== null) {
     while (kept.length > 0 && sentenceCount(text()) > limit.sentences) {
       const extra = kept.pop()!;

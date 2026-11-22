@@ -1,4 +1,5 @@
 import type { Source } from "@/lib/drafting/types";
+import { parseClip } from "@/lib/drafting/rules";
 import { combine, readOn, segments, sourceLabel, type ApprovedText, type Shown } from "@/lib/gallery/texts";
 
 /**
@@ -17,11 +18,11 @@ export function AboutArtist({ artist, whyTheyMatter, biography }: { artist: stri
   const bio = shown.find((s) => s.field === "biography") ?? null;
   return (
     <>
-      {why && (
+      {why && (clipsOf(why) ? <Clips shown={why} /> : (
         <p className="mt-6 max-w-md text-pretty text-[15px] leading-relaxed text-ink-muted">
           <Text shown={why} />
         </p>
-      )}
+      ))}
       {bio ? (
         <details className="group mt-6 w-full max-w-md">
           <summary className="cursor-pointer list-none font-sans text-[11px] uppercase tracking-[0.2em] text-ink-faint transition-colors hover:text-ink-muted">
@@ -37,6 +38,44 @@ export function AboutArtist({ artist, whyTheyMatter, biography }: { artist: stri
         <Sources sources={sources} />
       )}
     </>
+  );
+}
+
+/** M2-04d: "why they matter" as clips — every sentence one quotation and its attribution — or null, and the text shows as written. */
+function clipsOf(shown: Shown) {
+  const clips = shown.sentences.map((s) => ({ clip: parseClip(s.text), sources: s.sources }));
+  return clips.length > 0 && clips.every((c) => c.clip) ? clips.map((c) => ({ ...c.clip!, sources: c.sources })) : null;
+}
+
+/** The critical voice, as a good wall label sets it: the line, then whose it is. A phrase that starts mid-sentence opens with "…". */
+function Clips({ shown }: { shown: Shown }) {
+  const clips = clipsOf(shown) ?? [];
+  return (
+    <div className="mt-6 max-w-md space-y-4">
+      {clips.map((c, i) => (
+        <figure key={i}>
+          <blockquote className="text-pretty font-serif text-[17px] italic leading-relaxed text-ink">
+            “{/^\p{Ll}/u.test(c.quote) ? "…" : ""}
+            {c.quote}”
+          </blockquote>
+          <figcaption className="mt-1 font-sans text-[11px] tracking-wide text-ink-muted">
+            — {segments(c.attribution).map((g, j) => (g.italic ? <i key={j}>{g.text}</i> : <span key={j}>{g.text}</span>))}
+            {c.sources.length > 0 && (
+              <sup className="ml-0.5 text-[9px] tracking-wider text-ink-faint">
+                {c.sources.map((n, k) => (
+                  <span key={n}>
+                    {k > 0 && " "}
+                    <a href={`#source-${n}`} className="transition-colors hover:text-ink-muted">
+                      {n}
+                    </a>
+                  </span>
+                ))}
+              </sup>
+            )}
+          </figcaption>
+        </figure>
+      ))}
+    </div>
   );
 }
 

@@ -60,9 +60,11 @@ describe("the desk", () => {
           { text: "She painted a portrait of Sample Roets.", sources: [3] },
         ],
         whyTheyMatter: [
-          { text: "Harbour Gallery considers her “one of the most important painters of her generation”.", sources: [3] },
-          { text: "A second sentence.", sources: [3] },
-          { text: "A third sentence.", sources: [3] },
+          { text: "“one of the most important painters of her generation” — Harbour Gallery", sources: [3] },
+          { text: "“Test Painter was born in Durban in 1980” — Harbour Gallery", sources: [3] },
+          { text: "“The blue is the blue of the bay in July” — Test Painter", sources: [1] },
+          { text: "A sentence of the desk's own.", sources: [3] },
+          { text: "“studied at the Michaelis School of Fine Art” — Harbour Gallery", sources: [3] },
         ],
       },
       verdicts: (req) =>
@@ -104,8 +106,13 @@ describe("the desk", () => {
     expect(bio.flagged).toEqual([{ text: "She paints the harbour.", why: "doubtful" }]);
 
     const why = draft.fields.find((f) => f.field === "why_they_matter")!;
-    expect(why.sentences).toHaveLength(2);
-    expect(why.removed).toEqual([{ text: "A third sentence.", rule: "length", why: "why they matter is at most two sentences" }]);
+    // M2-04d: clips only, never the artist's own words, two at most
+    expect(why.sentences.map((s) => s.text)).toEqual(["“one of the most important painters of her generation” — Harbour Gallery", "“Test Painter was born in Durban in 1980” — Harbour Gallery"]);
+    expect(why.removed).toEqual([
+      { text: "“The blue is the blue of the bay in July” — Test Painter", rule: 3, why: "rule 3: the artist's own words belong in the biography; why they matter is a critic's, curator's or writer's" },
+      { text: "A sentence of the desk's own.", rule: 3, why: "rule 3: why they matter is a clip — one quotation and its attribution, no words of the desk's own" },
+      { text: "“studied at the Michaelis School of Fine Art” — Harbour Gallery", rule: "length", why: "why they matter is at most two clips" },
+    ]);
     // only the sources the kept sentences cite travel with the draft
     expect(draft.sources.map((s) => s.n)).toEqual([1, 2, 3]);
     expect(draft.usage.requests).toBe(1 + 1 + 2);
@@ -139,15 +146,15 @@ describe("the desk", () => {
   });
 
   it("reads before it cuts — a sentence the reading removes makes room for one that fits — and a field emptied says so in the list's words", async () => {
-    const long = "Harbour Gallery " + "word ".repeat(53).trim() + ".";
+    const long = "“Test Painter was born in Durban in 1980” — Harbour Gallery";
     const { model, calls } = standIn({
       found,
       answer: {
         biography: [{ text: "She lives in Cape Town.", sources: [3] }],
         whyTheyMatter: [
-          { text: "Harbour Gallery calls her a painter of light.", sources: [3] },
+          { text: "“one of the most important painters of her generation” — Harbour Gallery", sources: [3] },
           { text: long, sources: [3] },
-          { text: "She shows in Cape Town.", sources: [3] },
+          { text: "“studied at the Michaelis School of Fine Art” — Harbour Gallery", sources: [3] },
         ],
       },
       verdicts: (req) =>
@@ -157,9 +164,9 @@ describe("the desk", () => {
     });
     const draft = await draftArtist(painter, { model, list, sites, supplied });
     const why = draft.fields.find((f) => f.field === "why_they_matter")!;
-    // the reading saw all three; under M2-04 the third would have been cut for length before anyone read it
+    // the reading saw all three clips; the two-clip limit comes after it, so the third makes it in (M2-04b, M2-04d)
     expect(calls.read.find((r) => r.field === "why_they_matter")!.sentences).toHaveLength(3);
-    expect(why.sentences.map((s) => s.text)).toEqual(["Harbour Gallery calls her a painter of light.", "She shows in Cape Town."]);
+    expect(why.sentences.map((s) => s.text)).toEqual(["“one of the most important painters of her generation” — Harbour Gallery", "“studied at the Michaelis School of Fine Art” — Harbour Gallery"]);
     expect(why.removed.map((r) => r.rule)).toEqual(["reading"]);
     // why they matter is cut, never sent back to be shortened
     expect(calls.shorten).toHaveLength(0);

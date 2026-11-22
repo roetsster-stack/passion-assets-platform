@@ -6,6 +6,7 @@
  *   npm run draft -- --all                                     every field with no draft or one sent back; waiting and approved fields are left (M2-01)
  *   npm run draft -- --artist "Halter" --report ~/Desktop/Drafts.md   where the readable report lands
  *   npm run draft -- --artist "Halter" --no-db                 the report only; nothing written to the table
+ *   npm run draft -- --field why_they_matter --artist "Halter" only that field reaches the table and the report (M2-04d)
  *
  * For each artist: a short biography and one sentence on why they matter, every sentence tied to
  * sources a person can check — Michael's supplied texts first, then the passages filed from his books
@@ -26,7 +27,7 @@ import { sslFor } from "../src/lib/db";
 import { loadAllowlist, resolving } from "../src/lib/drafting/allowlist";
 import { anthropicModel } from "../src/lib/drafting/anthropic";
 import { draftArtist } from "../src/lib/drafting/desk";
-import { answersFor, fieldsToDraft, latestPerField, onlyFields, wantsDraft, type DraftRow } from "../src/lib/drafting/pending";
+import { answersFor, fieldOption, fieldsToDraft, latestPerField, onlyFields, wantsDraft, type DraftRow } from "../src/lib/drafting/pending";
 import { ARTIST_COLUMNS, toArtistInput, WORK_COLUMNS, type ArtistRow, type WorkRow } from "../src/lib/drafting/input";
 import { loadList } from "../src/lib/drafting/list";
 import { renderReport, type RunMeta } from "../src/lib/drafting/report";
@@ -49,8 +50,9 @@ async function main() {
   const names = values("--artist");
   const count = Number(values("--artists")[0] ?? 0);
   const every = flag("--all");
+  const only = fieldOption(values("--field")[0]);
   if (names.length === 0 && !(count > 0) && !every) {
-    console.error('Usage: npm run draft -- --artist "Halter" [--artist "Kentridge"] | --artists 5 | --all   [--report <file>] [--no-db]');
+    console.error('Usage: npm run draft -- --artist "Halter" [--artist "Kentridge"] | --artists 5 | --all   [--field why_they_matter|biography] [--report <file>] [--no-db]');
     process.exit(2);
   }
   const envFile = loadEnvFile();
@@ -123,7 +125,9 @@ async function main() {
         for (const [field, a] of Object.entries(answers)) if (a) console.log(`  answering the note on the previous ${field === "biography" ? "biography" : "why they matter"}: “${a.note}”`);
         const written = await draftArtist(artist, { model, list, sites, supplied: (a) => [...suppliedSources(contextDir, a), ...librarySources(contextDir, a)], neverName }, { answers });
         // under --all, a field that waits or stands approved is not drafted over: only the wanted fields are kept
-        const draft = latest ? onlyFields(written, fieldsToDraft(latest.get(artist.id))) : written;
+        const wanted = latest ? onlyFields(written, fieldsToDraft(latest.get(artist.id))) : written;
+        // --field: only that field, so a new "why they matter" never touches an approved biography (M2-04d)
+        const draft = only ? onlyFields(wanted, wanted.fields.map((f) => f.field).filter((f) => f === only)) : wanted;
         drafts.push(draft);
         for (const f of draft.fields) console.log(`  ${f.field}: ${f.sentences.length} sentence(s) kept, ${f.removed.length} removed, ${f.flagged.length} flagged`);
         if (table === "written") {
