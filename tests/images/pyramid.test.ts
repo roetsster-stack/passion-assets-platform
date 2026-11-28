@@ -1,5 +1,5 @@
 /**
- * M1-02b · the tile pyramid: the ≥ 4,000 px rule, Deep Zoom's levels and tile counts, the address
+ * M1-02b · the tile pyramid: the ≥ 3,400 px rule, Deep Zoom's levels and tile counts, the address
  * of a tile — and that what sharp cuts on disk is exactly what the rule says, since the tile door
  * refuses any address the rule does not name. Synthetic pictures only.
  */

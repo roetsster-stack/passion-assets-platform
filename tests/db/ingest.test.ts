@@ -560,7 +560,7 @@ describe.skipIf(!url)("M1-01 · the record arrives", () => {
     expect(r1.renditions).toEqual({ created: 16, unchanged: 0 });
     expect(r1.renditionErrors).toEqual([]);
     expect(r1.pictures).toEqual({ withMaster: 0, onSnapshot: 2, withoutPicture: 1, withGlass: 0 });
-    expect(r1.tileSets).toEqual({ counts: { created: 0, unchanged: 0 }, errors: [], cut: [] }); // nothing is 4,000 px
+    expect(r1.tileSets).toEqual({ counts: { created: 0, unchanged: 0 }, errors: [], cut: [] }); // nothing reaches the glass line
     const r2 = await runIngest(deps({ store, ladder }));
     expect(r2.renditions).toEqual({ created: 0, unchanged: 16 });
     expect(r2.picturesMoved).toBe(0);

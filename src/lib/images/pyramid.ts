@@ -5,9 +5,9 @@
  * of the picture. Only a source of 3,400 px or more on its long side gets a pyramid: below that
  * the 4,320 rung of the ladder already shows every pixel.
  *
- * The line was 4,000 px until 22 Nov 2026. Michael lowered it to 3,400 so that five works he holds
- * important, photographed just under 4,000 (Hodgins, Grose, Ruga, Botes, Blom: 3,483–3,806 px),
- * open into the glass. Parked: back to 4,000 once they are rephotographed. A run never removes a
+ * The line was 4,000 px until 22 Nov 2026. Michael lowered it to 3,400 so that six works he holds
+ * important, photographed just under 4,000 (Hodgins, Grose, Ruga, Botes, Naudé, Blom: 3,483–3,806
+ * px), open into the glass. Parked: back to 4,000 once they are rephotographed. A run never removes a
  * tile set, so raising the line again stops new pyramids below it but leaves these in place.
  */
 
