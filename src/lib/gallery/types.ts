@@ -34,7 +34,7 @@ export type Picture = {
   /** A data URI (~600 bytes), in the HTML itself. */
   placeholder: string | null;
   renditions: Rendition[];
-  /** Null for most works: only a source of 4,000 px or more has one, and only then is there a glass. */
+  /** Null for most works: only a source of 3,400 px or more has one, and only then is there a glass. */
   tileSet: TileSet | null;
 };
 

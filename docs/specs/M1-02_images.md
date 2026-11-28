@@ -429,3 +429,27 @@ PR, next, with its own cold review** — not a quiet patch on a branch already c
 show the way out briefly whenever the glass opens, on every device.
 
 **Left as built:** a single click inside the glass zooms in (undocumented in the note, tried and liked).
+
+## RULED — the glass from 3,400 px, 22 Nov 2026
+
+Michael lowered the line for the glass from 4,000 px to 3,400 px on the long side. The history above is left
+as written; wherever it says 4,000 px, the rule in force is now 3,400 px (`TILES_MIN_LONG_SIDE`).
+
+**Why.** Six works he holds important were photographed just under 4,000 px: Hodgins, *Encounter with a Dark
+Angel* (3,483); Grose, *Dissimulation 13* (3,543); Ruga, *Even I Exist In Embo 7* (3,543); Botes, *The Raft of
+the Medusa* (study) (3,559); Naudé, *Untitled* (3,618); Blom, *1.225 Untitled* (3,806). Below 4,320 px the
+ladder's top rung already shows every pixel, so for these the glass adds the full screen and magnification,
+not detail. The reason for 3,400 is the ruling.
+
+**A rule, not a list.** Every picture of 3,400 px or more that hangs gets a pyramid. Since its crop of 23 Nov
+that includes Wa Lehulere, *Burnt sunflowers* (3,415 px), and it will include any picture that arrives at that
+size, a gallery's press image among them.
+
+**Parked: back to 4,000 px** once these works are rephotographed at 4,000 px or more, or when the collection
+is shown outside the family. No run removes a master's tile set, so raising the line again leaves those in
+place. A tile set cut from an Airtable photograph goes when that photograph leaves Airtable; of the seven, on
+28 Nov, only Naudé's *Untitled* hangs its Airtable photograph.
+
+**How it reached `main`.** The six pyramids were cut on Workshop on 22 Nov from the change before it was
+pushed. It was carried to `main` on 28 Nov as its own PR (#18) with its own cold review. Runs that write to
+the register start from `main`, or from a branch with an open PR.

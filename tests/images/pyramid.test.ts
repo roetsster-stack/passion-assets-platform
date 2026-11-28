@@ -1,5 +1,5 @@
 /**
- * M1-02b · the tile pyramid: the ≥ 4,000 px rule, Deep Zoom's levels and tile counts, the address
+ * M1-02b · the tile pyramid: the ≥ 3,400 px rule, Deep Zoom's levels and tile counts, the address
  * of a tile — and that what sharp cuts on disk is exactly what the rule says, since the tile door
  * refuses any address the rule does not name. Synthetic pictures only.
  */
@@ -24,12 +24,14 @@ import {
 } from "@/lib/images/pyramid";
 import { tiles } from "@/lib/images/render";
 
-describe("the ≥ 4,000 px rule", () => {
-  it("a source of 4,000 px or more on its long side gets a pyramid; anything less has the ladder's 4,320 rung already", () => {
-    expect(TILES_MIN_LONG_SIDE).toBe(4000);
+describe("the ≥ 3,400 px rule", () => {
+  it("a source of 3,400 px or more on its long side gets a pyramid (the line is the ruling of 22 Nov 2026); anything less gets none", () => {
+    expect(TILES_MIN_LONG_SIDE).toBe(3400);
     expect(needsTiles(5375)).toBe(true);
     expect(needsTiles(4000)).toBe(true);
-    expect(needsTiles(3999)).toBe(false);
+    expect(needsTiles(3483)).toBe(true);
+    expect(needsTiles(3400)).toBe(true);
+    expect(needsTiles(3399)).toBe(false);
     expect(needsTiles(null)).toBe(false);
     expect(needsTiles(undefined)).toBe(false);
   });
