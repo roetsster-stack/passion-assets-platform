@@ -2,13 +2,19 @@
  * The tile pyramid (M1-02b): Deep Zoom (DZI) addressing, as sharp cuts it and OpenSeadragon reads
  * it — pure. Level 0 is one pixel; each level doubles; the top level is the source itself. Tiles
  * are 254 px with 1 px of overlap on every inner edge, so a tile is 256 px across in the middle
- * of the picture. Only a source of 3,400 px or more on its long side gets a pyramid: below that
- * the 4,320 rung of the ladder already shows every pixel.
+ * of the picture. Only a source of 3,400 px or more on its long side gets a pyramid.
  *
- * The line was 4,000 px until 22 Nov 2026. Michael lowered it to 3,400 so that six works he holds
- * important, photographed just under 4,000 (Hodgins, Grose, Ruga, Botes, Naudé, Blom: 3,483–3,806
- * px), open into the glass. Parked: back to 4,000 once they are rephotographed. A run never removes a
- * tile set, so raising the line again stops new pyramids below it but leaves these in place.
+ * The line is a ruling, and a rule for every picture that hangs, not a list. It was 4,000 px until
+ * 22 Nov 2026; Michael lowered it to 3,400 so that works he holds important, photographed just
+ * under 4,000, open into the glass. On 22 Nov that took in six (Hodgins, Grose, Ruga, Botes, Naudé,
+ * Blom: 3,483–3,806 px); since its crop of 23 Nov, Wa Lehulere's Burnt sunflowers too (3,415 px).
+ * Below 4,320 px the ladder's top rung already shows every pixel, so for these the glass adds the
+ * full screen and magnification, not detail.
+ *
+ * Parked: back to 4,000 once they are rephotographed, or when the collection is shown outside the
+ * family. No run removes a master's tile set, so raising the line again stops new pyramids below it
+ * and leaves those in place; a tile set cut from an Airtable photograph goes when that photograph
+ * leaves Airtable.
  */
 
 export const TILE_SIZE = 254;

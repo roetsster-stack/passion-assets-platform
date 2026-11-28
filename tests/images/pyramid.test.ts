@@ -25,7 +25,7 @@ import {
 import { tiles } from "@/lib/images/render";
 
 describe("the ≥ 3,400 px rule", () => {
-  it("a source of 3,400 px or more on its long side gets a pyramid; anything less has the ladder's 4,320 rung already", () => {
+  it("a source of 3,400 px or more on its long side gets a pyramid (the line is the ruling of 22 Nov 2026); anything less gets none", () => {
     expect(TILES_MIN_LONG_SIDE).toBe(3400);
     expect(needsTiles(5375)).toBe(true);
     expect(needsTiles(4000)).toBe(true);
